@@ -1,0 +1,307 @@
+{
+  "perfil_padrao": {
+    "segmento": "",
+    "objetivo_principal": "Leads",
+    "tipo_operacao": "Meta Ads",
+    "observacoes": ""
+  },
+
+  "categorias": {
+    "entrega": "Entrega",
+    "clique": "Clique e Interesse",
+    "lead": "Leads e Conversão",
+    "venda": "Vendas e ROI",
+    "financeiro": "Financeiro"
+  },
+
+  "metricas": {
+
+    "alcance": {
+      "label": "Alcance",
+      "unit": "",
+      "categoria": "entrega",
+      "tipo_leitura": "maior_melhor",
+      "peso": 5,
+      "ativo": true,
+      "critico_min": 100,
+      "alerta_min": 500,
+      "ideal_min": 1500,
+      "ideal_max": 80000,
+      "alerta_max": 120000,
+      "critico_max": 200000,
+      "descricao": "Pessoas únicas alcançadas"
+    },
+
+    "impressoes": {
+      "label": "Impressões",
+      "unit": "",
+      "categoria": "entrega",
+      "tipo_leitura": "maior_melhor",
+      "peso": 5,
+      "ativo": true,
+      "critico_min": 300,
+      "alerta_min": 1000,
+      "ideal_min": 3000,
+      "ideal_max": 150000,
+      "alerta_max": 250000,
+      "critico_max": 500000,
+      "descricao": "Total de exibições do anúncio"
+    },
+
+    "frequencia": {
+      "label": "Frequência",
+      "unit": "",
+      "categoria": "entrega",
+      "tipo_leitura": "faixa_ideal",
+      "peso": 9,
+      "ativo": true,
+      "critico_min": 0.8,
+      "alerta_min": 1.2,
+      "ideal_min": 1.5,
+      "ideal_max": 3.0,
+      "alerta_max": 4.0,
+      "critico_max": 6.0,
+      "descricao": "Média de vezes que cada pessoa viu o anúncio"
+    },
+
+    "cpm": {
+      "label": "CPM",
+      "unit": "R$",
+      "categoria": "entrega",
+      "tipo_leitura": "menor_melhor",
+      "peso": 10,
+      "ativo": true,
+      "critico_min": 6,
+      "alerta_min": 10,
+      "ideal_min": 12,
+      "ideal_max": 25,
+      "alerta_max": 35,
+      "critico_max": 60,
+      "descricao": "Custo por mil impressões"
+    },
+
+    "ctr": {
+      "label": "CTR",
+      "unit": "%",
+      "categoria": "clique",
+      "tipo_leitura": "maior_melhor",
+      "peso": 10,
+      "ativo": true,
+      "critico_min": 0.5,
+      "alerta_min": 1.0,
+      "ideal_min": 1.8,
+      "ideal_max": 4.5,
+      "alerta_max": 6.0,
+      "critico_max": 10.0,
+      "descricao": "Taxa de cliques geral"
+    },
+
+    "ctr_link": {
+      "label": "CTR Link",
+      "unit": "%",
+      "categoria": "clique",
+      "tipo_leitura": "maior_melhor",
+      "peso": 10,
+      "ativo": true,
+      "critico_min": 0.4,
+      "alerta_min": 0.8,
+      "ideal_min": 1.5,
+      "ideal_max": 4.0,
+      "alerta_max": 5.5,
+      "critico_max": 8.0,
+      "descricao": "Taxa de clique no link"
+    },
+
+    "cpc": {
+      "label": "CPC",
+      "unit": "R$",
+      "categoria": "clique",
+      "tipo_leitura": "menor_melhor",
+      "peso": 10,
+      "ativo": true,
+      "critico_min": 0.3,
+      "alerta_min": 0.6,
+      "ideal_min": 0.8,
+      "ideal_max": 2.0,
+      "alerta_max": 3.0,
+      "critico_max": 5.0,
+      "descricao": "Custo por clique"
+    },
+
+    "cliques_link": {
+      "label": "Cliques no Link",
+      "unit": "",
+      "categoria": "clique",
+      "tipo_leitura": "maior_melhor",
+      "peso": 6,
+      "ativo": true,
+      "critico_min": 10,
+      "alerta_min": 25,
+      "ideal_min": 50,
+      "ideal_max": 3000,
+      "alerta_max": 5000,
+      "critico_max": 10000,
+      "descricao": "Cliques que levam ao destino"
+    },
+
+    "lpv": {
+      "label": "LPV",
+      "unit": "",
+      "categoria": "clique",
+      "tipo_leitura": "maior_melhor",
+      "peso": 7,
+      "ativo": true,
+      "critico_min": 10,
+      "alerta_min": 20,
+      "ideal_min": 40,
+      "ideal_max": 2500,
+      "alerta_max": 4000,
+      "critico_max": 7000,
+      "descricao": "Visualizações da página de destino"
+    },
+
+    "custo_por_lpv": {
+      "label": "Custo por LPV",
+      "unit": "R$",
+      "categoria": "clique",
+      "tipo_leitura": "menor_melhor",
+      "peso": 9,
+      "ativo": true,
+      "critico_min": 0.5,
+      "alerta_min": 0.8,
+      "ideal_min": 1.2,
+      "ideal_max": 2.5,
+      "alerta_max": 3.5,
+      "critico_max": 6.0,
+      "descricao": "Custo por visualização da página"
+    },
+
+    "resultados": {
+      "label": "Resultados",
+      "unit": "",
+      "categoria": "lead",
+      "tipo_leitura": "maior_melhor",
+      "peso": 10,
+      "ativo": true,
+      "critico_min": 0,
+      "alerta_min": 3,
+      "ideal_min": 8,
+      "ideal_max": 120,
+      "alerta_max": 250,
+      "critico_max": 500,
+      "descricao": "Resultados principais da campanha"
+    },
+
+    "custo_por_resultado": {
+      "label": "Custo por Resultado",
+      "unit": "R$",
+      "categoria": "lead",
+      "tipo_leitura": "menor_melhor",
+      "peso": 10,
+      "ativo": true,
+      "critico_min": 3,
+      "alerta_min": 6,
+      "ideal_min": 8,
+      "ideal_max": 20,
+      "alerta_max": 30,
+      "critico_max": 50,
+      "descricao": "Custo por resultado"
+    },
+
+    "cpl": {
+      "label": "CPL",
+      "unit": "R$",
+      "categoria": "lead",
+      "tipo_leitura": "menor_melhor",
+      "peso": 10,
+      "ativo": true,
+      "critico_min": 5,
+      "alerta_min": 8,
+      "ideal_min": 10,
+      "ideal_max": 25,
+      "alerta_max": 35,
+      "critico_max": 60,
+      "descricao": "Custo por lead"
+    },
+
+    "taxa_conversao": {
+      "label": "Taxa de Conversão",
+      "unit": "%",
+      "categoria": "lead",
+      "tipo_leitura": "maior_melhor",
+      "peso": 9,
+      "ativo": true,
+      "critico_min": 0.5,
+      "alerta_min": 1.0,
+      "ideal_min": 2.0,
+      "ideal_max": 6.0,
+      "alerta_max": 9.0,
+      "critico_max": 15.0,
+      "descricao": "Conversão entre clique e resultado"
+    },
+
+    "compras": {
+      "label": "Compras",
+      "unit": "",
+      "categoria": "venda",
+      "tipo_leitura": "maior_melhor",
+      "peso": 10,
+      "ativo": false,
+      "critico_min": 0,
+      "alerta_min": 1,
+      "ideal_min": 3,
+      "ideal_max": 50,
+      "alerta_max": 100,
+      "critico_max": 200,
+      "descricao": "Compras realizadas"
+    },
+
+    "custo_por_compra": {
+      "label": "Custo por Compra",
+      "unit": "R$",
+      "categoria": "venda",
+      "tipo_leitura": "menor_melhor",
+      "peso": 10,
+      "ativo": false,
+      "critico_min": 10,
+      "alerta_min": 20,
+      "ideal_min": 30,
+      "ideal_max": 80,
+      "alerta_max": 120,
+      "critico_max": 200,
+      "descricao": "Custo por aquisição"
+    },
+
+    "roas": {
+      "label": "ROAS",
+      "unit": "x",
+      "categoria": "venda",
+      "tipo_leitura": "maior_melhor",
+      "peso": 10,
+      "ativo": false,
+      "critico_min": 0.8,
+      "alerta_min": 1.5,
+      "ideal_min": 2.5,
+      "ideal_max": 6.0,
+      "alerta_max": 10.0,
+      "critico_max": 15.0,
+      "descricao": "Retorno sobre investimento"
+    },
+
+    "valor_gasto": {
+      "label": "Valor Gasto",
+      "unit": "R$",
+      "categoria": "financeiro",
+      "tipo_leitura": "faixa_ideal",
+      "peso": 6,
+      "ativo": true,
+      "critico_min": 50,
+      "alerta_min": 150,
+      "ideal_min": 300,
+      "ideal_max": 8000,
+      "alerta_max": 12000,
+      "critico_max": 20000,
+      "descricao": "Investimento total"
+    }
+  }
+}
