@@ -1,0 +1,9 @@
+# Dashboard ALP - Cron oficial de producao
+
+0 * * * * /usr/bin/php8.5 /var/www/dashboardalp/cron/sync_mercado_phone.php 100 >> /var/www/dashboardalp/app/logs/mercado_phone.log 2>&1
+* * * * * flock -n /tmp/process_meta_sync_queue.lock /usr/bin/php8.5 /var/www/dashboardalp/cron/process_meta_sync_queue.php 20 >> /var/www/dashboardalp/app/logs/process_meta_sync_queue.log 2>&1
+*/10 * * * * /usr/bin/php8.5 /var/www/dashboardalp/cron/process_relatorios_programados.php 50 >> /var/www/dashboardalp/app/logs/process_relatorios_programados.log 2>&1
+15,45 * * * * /usr/bin/php8.5 /var/www/dashboardalp/cron/enqueue_meta_insights.php >> /var/www/dashboardalp/app/logs/enqueue_meta_insights.log 2>&1
+0 3 * * * /usr/bin/php8.5 /var/www/dashboardalp/cron/enqueue_meta_structure.php >> /var/www/dashboardalp/app/logs/enqueue_meta_structure.log 2>&1
+*/15 * * * * /usr/bin/php8.5 /var/www/dashboardalp/cron/meta_maintenance.php >> /var/www/dashboardalp/app/logs/meta_maintenance.log 2>&1
+*/10 * * * * /usr/bin/php8.5 /var/www/dashboardalp/cron/check_operacao.php >> /var/www/dashboardalp/app/logs/check_operacao.log 2>&1

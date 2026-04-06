@@ -9,7 +9,7 @@ class Tenant
         }
 
         if (empty($_SESSION['empresa_id'])) {
-            die('Empresa não definida na sessão.');
+            throw new RuntimeException('Empresa não definida na sessão.');
         }
     }
 

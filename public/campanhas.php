@@ -4,107 +4,56 @@ require_once __DIR__ . '/../app/config/bootstrap.php';
 
 Auth::requireLogin();
 
-$empresaId = Auth::getEmpresaId();
-
-if (session_status() !== PHP_SESSION_ACTIVE) {
-    session_start();
-}
-
-if (empty($_SESSION['csrf_token'])) {
-    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-}
-
 $db = new Database();
 $conn = $db->connect();
 
-$conta = new ContaAds($conn, $empresaId);
-$campanha = new Campanha($conn, $empresaId);
+EmpresaAccessGuard::assertPodeOperar($conn);
 
-$contas = $conta->getAll();
+$empresaId = Auth::getEmpresaId();
+$usuarioId = Auth::getUsuarioId();
+
+$managementService = new CampanhaManagementService($conn, $empresaId);
+$writeService = new CampanhaWriteService($conn, $empresaId);
 
 $acao = $_GET['acao'] ?? '';
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
-$campanhaEdicao = null;
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (
-        empty($_POST['csrf_token']) ||
-        empty($_SESSION['csrf_token']) ||
-        !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])
-    ) {
+    if (!Csrf::isValid()) {
         http_response_code(403);
         exit('Token CSRF inválido.');
     }
 
     $postAcao = $_POST['acao'] ?? '';
-    $postId = (int)($_POST['id'] ?? 0);
-    $contaId = (int)($_POST['conta_id'] ?? 0);
-    $nome = trim($_POST['nome'] ?? '');
-    $objetivo = trim($_POST['objetivo'] ?? '');
 
-    if ($postAcao === 'criar') {
-        if ($contaId <= 0 || $nome === '') {
-            header('Location: campanhas.php?erro=dados_invalidos');
-            exit;
+    try {
+        if ($postAcao === 'criar') {
+            Flash::success($writeService->create($_POST));
+        } elseif ($postAcao === 'atualizar') {
+            Flash::success($writeService->update($_POST));
+        } elseif ($postAcao === 'excluir') {
+            Flash::success($writeService->delete($_POST));
         }
-
-        $ok = $campanha->create($contaId, $nome, $objetivo);
-        header('Location: campanhas.php?' . ($ok ? 'sucesso=criado' : 'erro=criar'));
-        exit;
+    } catch (Throwable $e) {
+        Flash::error($e->getMessage());
     }
 
-    if ($postAcao === 'atualizar') {
-        if ($postId <= 0 || $contaId <= 0 || $nome === '') {
-            header('Location: campanhas.php?erro=dados_invalidos');
-            exit;
-        }
-
-        $ok = $campanha->update($postId, $contaId, $nome, $objetivo);
-        header('Location: campanhas.php?' . ($ok ? 'sucesso=atualizado' : 'erro=atualizar'));
-        exit;
-    }
-
-    if ($postAcao === 'excluir') {
-        if ($postId <= 0) {
-            header('Location: campanhas.php?erro=id_invalido');
-            exit;
-        }
-
-        $ok = $campanha->delete($postId);
-        header('Location: campanhas.php?' . ($ok ? 'sucesso=excluido' : 'erro=excluir'));
-        exit;
-    }
+    header('Location: ' . routeUrl('campanhas'));
+    exit;
 }
+$pageData = $managementService->getPageData($acao, $id);
+$contas = $pageData['contas'];
+$campanhaEdicao = $pageData['campanha_edicao'];
+$lista = $pageData['lista'];
+$totalCampanhas = $pageData['totais']['total_campanhas'];
+$totalComObjetivo = $pageData['totais']['total_com_objetivo'];
+$totalComMetaId = $pageData['totais']['total_com_meta_id'];
+$totalComStatus = $pageData['totais']['total_com_status'];
 
-if ($acao === 'editar' && $id > 0) {
-    $campanhaEdicao = $campanha->getById($id);
-
-    if (!$campanhaEdicao) {
-        header('Location: campanhas.php?erro=campanha_nao_encontrada');
-        exit;
-    }
-}
-
-$lista = $campanha->getAll();
-
-$totalCampanhas = count($lista);
-$totalComObjetivo = 0;
-$totalComMetaId = 0;
-$totalComStatus = 0;
-
-foreach ($lista as $item) {
-    if (!empty(trim($item['objetivo'] ?? ''))) {
-        $totalComObjetivo++;
-    }
-
-    if (!empty(trim($item['meta_campaign_id'] ?? ''))) {
-        $totalComMetaId++;
-    }
-
-    if (!empty(trim($item['status'] ?? ''))) {
-        $totalComStatus++;
-    }
+if ($acao === 'editar' && $id > 0 && !$campanhaEdicao) {
+    Flash::error('Campanha não encontrada.');
+    header('Location: ' . routeUrl('campanhas'));
+    exit;
 }
 
 ?>
@@ -121,6 +70,13 @@ foreach ($lista as $item) {
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
     <link rel="stylesheet" href="../assets/css/global.css">
+    <link rel="stylesheet" href="../assets/css/toast.css">
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
 </head>
 
 <body class="page page-campanhas">
@@ -150,7 +106,7 @@ foreach ($lista as $item) {
                 </div>
 
                 <div class="page-hero-actions">
-                    <a href="campanhas.php" class="btn btn-secondary">Atualizar tela</a>
+                    <a href="<?= htmlspecialchars(routeUrl('campanhas')); ?>" class="btn btn-secondary">Atualizar tela</a>
                 </div>
             </section>
 
@@ -194,7 +150,7 @@ foreach ($lista as $item) {
                     </div>
 
                     <form method="POST" class="form-stack">
-                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+                        <?= Csrf::field() ?>
                         <input type="hidden" name="acao" value="<?= $campanhaEdicao ? 'atualizar' : 'criar' ?>">
                         <input type="hidden" name="id" value="<?= (int)($campanhaEdicao['id'] ?? 0) ?>">
 
@@ -241,7 +197,7 @@ foreach ($lista as $item) {
                             </button>
 
                             <?php if ($campanhaEdicao): ?>
-                                <a href="campanhas.php" class="btn btn-ghost">Cancelar</a>
+                                <a href="<?= htmlspecialchars(routeUrl('campanhas')); ?>" class="btn btn-ghost">Cancelar</a>
                             <?php endif; ?>
                         </div>
                     </form>
@@ -271,7 +227,7 @@ foreach ($lista as $item) {
                                 <div class="data-item">
                                     <div class="data-item-left">
                                         <div class="data-item-title">
-                                            <?= htmlspecialchars($c['nome']) ?>
+                                            <?= htmlspecialchars(CampanhaViewHelper::displayName($c)) ?>
                                         </div>
 
                                         <div class="data-item-meta">
@@ -282,7 +238,7 @@ foreach ($lista as $item) {
 
                                             <span>
                                                 <strong>Objetivo:</strong>
-                                                <?= !empty($c['objetivo']) ? htmlspecialchars($c['objetivo']) : 'Não informado' ?>
+                                                <?= !empty($c['objetivo']) ? htmlspecialchars(CampanhaViewHelper::goalLabel($c['objetivo'])) : 'Não informado' ?>
                                             </span>
 
                                             <span>
@@ -304,7 +260,7 @@ foreach ($lista as $item) {
 
                                     <div class="data-item-right">
                                         <?php if (!empty($c['objetivo'])): ?>
-                                            <span class="badge badge-blue"><?= htmlspecialchars($c['objetivo']) ?></span>
+                                            <span class="badge badge-blue"><?= htmlspecialchars(CampanhaViewHelper::goalLabel($c['objetivo'])) ?></span>
                                         <?php else: ?>
                                             <span class="badge badge-muted">Sem objetivo</span>
                                         <?php endif; ?>
@@ -319,12 +275,12 @@ foreach ($lista as $item) {
                                             <span class="badge badge-purple"><?= htmlspecialchars($c['status']) ?></span>
                                         <?php endif; ?>
 
-                                        <a href="campanhas.php?acao=editar&id=<?= (int)$c['id'] ?>" class="btn btn-warning btn-sm">
+                                        <a href="<?= htmlspecialchars(routeUrl('campanhas') . '?acao=editar&id=' . (int) $c['id']); ?>" class="btn btn-warning btn-sm">
                                             Editar
                                         </a>
 
                                         <form method="POST" style="display:inline;" onsubmit="return confirm('Tem certeza que deseja excluir esta campanha?')">
-                                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+                                            <?= Csrf::field() ?>
                                             <input type="hidden" name="acao" value="excluir">
                                             <input type="hidden" name="id" value="<?= (int)$c['id'] ?>">
                                             <button type="submit" class="btn btn-danger btn-sm">Excluir</button>
@@ -339,12 +295,8 @@ foreach ($lista as $item) {
         </main>
     </div>
 
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <script>
-        lucide.createIcons();
-    </script>
-
-    <script src="../assets/js/nav-config.js"></script>
+    <?php Flash::renderScript(); ?>
+    <script src="../assets/js/bootstrap.js"></script>
 
 </body>
 

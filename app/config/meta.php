@@ -1,12 +1,13 @@
 <?php
 
 return [
-    'app_id' => '2417345235380555',
-    'app_secret' => 'bb888c5db6c70d6597f307ceed346d6c',
-    'redirect_uri' => 'https://alpharsmkt.com/public/callback_meta.php',
-    'graph_version' => 'v25.0',
+    'app_id' => trim((string) Env::get('META_APP_ID', '')),
+    'app_secret' => trim((string) Env::get('META_APP_SECRET', '')),
+    'redirect_uri' => trim((string) Env::get('META_REDIRECT_URI', '')),
+    'graph_version' => trim((string) Env::get('META_GRAPH_VERSION', 'v25.0')),
     'scopes' => [
         'ads_read',
+        'ads_management',
         'business_management'
     ]
 ];

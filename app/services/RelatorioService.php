@@ -85,9 +85,9 @@ class RelatorioService
         ];
     }
 
-    public function getResumoGeral(?int $contaId, ?int $campanhaId, string $inicio, string $fim): array
+    public function getResumoGeral(?int $contaId, ?int $campanhaId, string $inicio, string $fim, ?string $campanhaStatus = null): array
     {
-        $where = $this->buildWhere($contaId, $campanhaId, $inicio, $fim);
+        $where = $this->buildWhere($contaId, $campanhaId, $inicio, $fim, $campanhaStatus);
 
         $sql = "
             SELECT
@@ -129,9 +129,9 @@ class RelatorioService
     }
 
 
-    public function getSerieTemporal(?int $contaId, ?int $campanhaId, string $inicio, string $fim): array
+    public function getSerieTemporal(?int $contaId, ?int $campanhaId, string $inicio, string $fim, ?string $campanhaStatus = null): array
     {
-        $where = $this->buildWhere($contaId, $campanhaId, $inicio, $fim);
+        $where = $this->buildWhere($contaId, $campanhaId, $inicio, $fim, $campanhaStatus);
 
         $sql = "
             SELECT
@@ -177,13 +177,13 @@ class RelatorioService
         ];
     }
 
-    public function getCampanhasRelatorio(?int $contaId, ?int $campanhaId, string $inicio, string $fim): array
+    public function getCampanhasRelatorio(?int $contaId, ?int $campanhaId, string $inicio, string $fim, ?string $campanhaStatus = null): array
     {
         $sql = "
             SELECT
                 c.id,
                 c.nome,
-                c.status,
+                COALESCE(NULLIF(c.effective_status, ''), NULLIF(c.status, ''), 'SEM STATUS') AS status,
                 {$this->sumExpr(['valor_gasto', 'gasto', 'spend'], 'valor_gasto', 'i')},
                 {$this->sumExpr(['impressoes', 'impressions'], 'impressoes', 'i')},
                 {$this->sumExpr(['cliques_link', 'cliques', 'clicks', 'link_clicks'], 'cliques_link', 'i')},
@@ -195,6 +195,7 @@ class RelatorioService
             LEFT JOIN insights_diarios i
                 ON i.campanha_id = c.id
                 AND i.data BETWEEN :inicio AND :fim
+                AND i.nivel = 'campaign'
             WHERE ca.empresa_id = :empresa_id
         ";
 
@@ -214,8 +215,13 @@ class RelatorioService
             $params[':campanha_id'] = $campanhaId;
         }
 
+        if (!empty($campanhaStatus)) {
+            $sql .= " AND UPPER(COALESCE(NULLIF(c.effective_status, ''), NULLIF(c.status, ''))) = :campanha_status";
+            $params[':campanha_status'] = strtoupper($campanhaStatus);
+        }
+
         $sql .= "
-            GROUP BY c.id, c.nome, c.status
+            GROUP BY c.id, c.nome, c.status, c.effective_status
             ORDER BY valor_gasto DESC, c.nome ASC
         ";
 
@@ -297,7 +303,7 @@ class RelatorioService
         return $insights;
     }
 
-    private function buildWhere(?int $contaId, ?int $campanhaId, string $inicio, string $fim): array
+    private function buildWhere(?int $contaId, ?int $campanhaId, string $inicio, string $fim, ?string $campanhaStatus = null): array
     {
         $sql = "
             ca.empresa_id = :empresa_id
@@ -318,6 +324,11 @@ class RelatorioService
         if (!empty($campanhaId)) {
             $sql .= " AND c.id = :campanha_id";
             $params[':campanha_id'] = $campanhaId;
+        }
+
+        if (!empty($campanhaStatus)) {
+            $sql .= " AND UPPER(COALESCE(NULLIF(c.effective_status, ''), NULLIF(c.status, ''))) = :campanha_status";
+            $params[':campanha_status'] = strtoupper($campanhaStatus);
         }
 
         

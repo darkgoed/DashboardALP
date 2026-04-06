@@ -1,4 +1,32 @@
-<Files ".env">
+<FilesMatch "^(\.env|\.env\..*|composer\.(json|lock)|.*\.(sql|bak|old|log|ini|dist))$">
     Order allow,deny
     Deny from all
-</Files>
+</FilesMatch>
+
+<FilesMatch "^(test_.*\.php|process_queue\.php)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+RedirectMatch 404 "(^|/)\.(git|svn|hg|vscode)(/|$)"
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    RewriteRule ^public/phpmyadmin(?:/.*)?$ - [R=404,L,NC]
+    RewriteRule ^phpmyadmin(?:/.*)?$ - [R=404,L,NC]
+    RewriteRule ^(?:public/)?uploads/.*\.(?:php|phar|phtml|php[0-9]*)$ - [R=404,L,NC]
+
+    # Mantem arquivos e diretorios reais acessiveis sem interferencia.
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # Canoniza URLs .php para a versao sem extensao.
+    RewriteCond %{THE_REQUEST} \s/+(.+?)\.php(?:[\s?]|$) [NC]
+    RewriteRule ^ %1 [R=301,L]
+
+    # Resolve internamente rotas sem extensao para o arquivo .php correspondente.
+    RewriteCond %{REQUEST_FILENAME}.php -f
+    RewriteRule ^(.+?)/?$ $1.php [L]
+</IfModule>

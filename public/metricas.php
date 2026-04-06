@@ -4,299 +4,44 @@ require_once __DIR__ . '/../app/config/bootstrap.php';
 
 Auth::requireLogin();
 
-$empresaId = Auth::getEmpresaId();
-$usuarioId = Auth::getUsuarioId();
-
 $db = new Database();
 $conn = $db->connect();
 
-$clienteModel = new Cliente($conn, $empresaId);
-$clientes = $clienteModel->getAll();
+EmpresaAccessGuard::assertPodeOperar($conn);
 
+$empresaId = Auth::getEmpresaId();
+$usuarioId = Auth::getUsuarioId();
+$metricasService = new MetricasConfigService($conn, $empresaId);
 $clienteId = isset($_GET['cliente_id']) ? (int)$_GET['cliente_id'] : 0;
 $mensagem = $_GET['msg'] ?? '';
 
-function carregarMetricasBase(): array
-{
-    $arquivo = __DIR__ . '/../app/config/metricas_base.json';
-
-    if (!file_exists($arquivo)) {
-        return [
-            '_erro' => 'Arquivo metricas_base.json não encontrado em app/config.'
-        ];
-    }
-
-    $conteudo = file_get_contents($arquivo);
-    $json = json_decode($conteudo, true);
-
-    if (!is_array($json)) {
-        return [
-            '_erro' => 'O arquivo metricas_base.json está inválido.'
-        ];
-    }
-
-    return $json;
-}
-
-function buscarNomeCliente(array $clientes, int $clienteId): string
-{
-    foreach ($clientes as $cliente) {
-        if ((int)$cliente['id'] === $clienteId) {
-            return $cliente['nome'];
-        }
-    }
-
-    return 'Empresa';
-}
-
-function carregarConfigCliente(PDO $conn, int $clienteId): ?array
-{
-    if ($clienteId <= 0) {
-        return null;
-    }
-
-    $stmt = $conn->prepare("SELECT config_json FROM metricas_config WHERE cliente_id = :cliente_id LIMIT 1");
-    $stmt->execute([
-        ':cliente_id' => $clienteId
-    ]);
-
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if (!$row || empty($row['config_json'])) {
-        return null;
-    }
-
-    $json = json_decode($row['config_json'], true);
-
-    return is_array($json) ? $json : null;
-}
-
-function montarConfigPadraoParaCliente(array $base, string $nomeCliente): array
-{
-    return [
-        'empresa' => $nomeCliente,
-        'perfil' => $base['perfil_padrao'] ?? [
-            'segmento' => '',
-            'objetivo_principal' => 'Leads',
-            'tipo_operacao' => 'Meta Ads',
-            'observacoes' => ''
-        ],
-        'categorias' => $base['categorias'] ?? [],
-        'metricas' => $base['metricas'] ?? []
-    ];
-}
-
-function extrairCategoriasDasMetricas(array $metricas, array $categoriasBase = []): array
-{
-    $categorias = [];
-
-    foreach ($metricas as $metrica) {
-        $chaveCategoria = $metrica['categoria'] ?? '';
-
-        if ($chaveCategoria === '') {
-            continue;
-        }
-
-        if (isset($categoriasBase[$chaveCategoria])) {
-            $categorias[$chaveCategoria] = $categoriasBase[$chaveCategoria];
-        } else {
-            $categorias[$chaveCategoria] = ucfirst(str_replace('_', ' ', $chaveCategoria));
-        }
-    }
-
-    return $categorias;
-}
-
-function normalizarCheckbox($valor): bool
-{
-    return $valor === '1' || $valor === 1 || $valor === true || $valor === 'on';
-}
-
-function floatOuZero($valor): float
-{
-    if ($valor === null || $valor === '') {
-        return 0;
-    }
-
-    $valor = str_replace(',', '.', (string)$valor);
-    return (float)$valor;
-}
-
-function intOuZero($valor): int
-{
-    if ($valor === null || $valor === '') {
-        return 0;
-    }
-
-    return (int)$valor;
-}
-
-$metricasBase = carregarMetricasBase();
-$erroBase = $metricasBase['_erro'] ?? '';
-
-if ($erroBase) {
-    $metricasBase = [
-        'perfil_padrao' => [
-            'segmento' => '',
-            'objetivo_principal' => 'Leads',
-            'tipo_operacao' => 'Meta Ads',
-            'observacoes' => ''
-        ],
-        'categorias' => [],
-        'metricas' => []
-    ];
-}
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $postAcao = $_POST['acao'] ?? '';
-    $clienteIdPost = isset($_POST['cliente_id']) ? (int)$_POST['cliente_id'] : 0;
-
-    if ($postAcao === 'salvar_metricas' && $clienteIdPost > 0) {
-        $nomeCliente = buscarNomeCliente($clientes, $clienteIdPost);
-
-        $perfilPost = $_POST['perfil'] ?? [];
-        $metricasPost = $_POST['metricas'] ?? [];
-        $jsonImportado = trim($_POST['json_importado'] ?? '');
-
-        $configFinal = [
-            'empresa' => $nomeCliente,
-            'perfil' => [
-                'segmento' => trim($perfilPost['segmento'] ?? ''),
-                'objetivo_principal' => trim($perfilPost['objetivo_principal'] ?? 'Leads'),
-                'tipo_operacao' => trim($perfilPost['tipo_operacao'] ?? 'Meta Ads'),
-                'observacoes' => trim($perfilPost['observacoes'] ?? '')
-            ],
-            'categorias' => $metricasBase['categorias'] ?? [],
-            'metricas' => []
-        ];
-
-        if ($jsonImportado !== '') {
-            $jsonDecodificado = json_decode($jsonImportado, true);
-
-            if (is_array($jsonDecodificado)) {
-                $configFinal = $jsonDecodificado;
-
-                $configFinal['empresa'] = $nomeCliente;
-
-                if (!isset($configFinal['perfil']) || !is_array($configFinal['perfil'])) {
-                    $configFinal['perfil'] = [];
-                }
-
-                $configFinal['perfil']['segmento'] = trim($configFinal['perfil']['segmento'] ?? ($perfilPost['segmento'] ?? ''));
-                $configFinal['perfil']['objetivo_principal'] = trim($configFinal['perfil']['objetivo_principal'] ?? ($perfilPost['objetivo_principal'] ?? 'Leads'));
-                $configFinal['perfil']['tipo_operacao'] = trim($configFinal['perfil']['tipo_operacao'] ?? ($perfilPost['tipo_operacao'] ?? 'Meta Ads'));
-                $configFinal['perfil']['observacoes'] = trim($configFinal['perfil']['observacoes'] ?? ($perfilPost['observacoes'] ?? ''));
-
-                if (!isset($configFinal['categorias']) || !is_array($configFinal['categorias'])) {
-                    $configFinal['categorias'] = $metricasBase['categorias'] ?? [];
-                }
-
-                if (!isset($configFinal['metricas']) || !is_array($configFinal['metricas'])) {
-                    $configFinal['metricas'] = [];
-                }
-            }
-        }
-
-        if (empty($configFinal['metricas'])) {
-            foreach ($metricasPost as $chave => $metrica) {
-                $configFinal['metricas'][$chave] = [
-                    'label' => trim($metrica['label'] ?? ''),
-                    'unit' => trim($metrica['unit'] ?? ''),
-                    'categoria' => trim($metrica['categoria'] ?? ''),
-                    'tipo_leitura' => trim($metrica['tipo_leitura'] ?? 'faixa_ideal'),
-                    'peso' => intOuZero($metrica['peso'] ?? 0),
-                    'ativo' => normalizarCheckbox($metrica['ativo'] ?? false),
-                    'critico_min' => floatOuZero($metrica['critico_min'] ?? 0),
-                    'alerta_min' => floatOuZero($metrica['alerta_min'] ?? 0),
-                    'ideal_min' => floatOuZero($metrica['ideal_min'] ?? 0),
-                    'ideal_max' => floatOuZero($metrica['ideal_max'] ?? 0),
-                    'alerta_max' => floatOuZero($metrica['alerta_max'] ?? 0),
-                    'critico_max' => floatOuZero($metrica['critico_max'] ?? 0),
-                    'descricao' => trim($metrica['descricao'] ?? '')
-                ];
-            }
-        }
-
-        if (empty($configFinal['categorias'])) {
-            $configFinal['categorias'] = extrairCategoriasDasMetricas($configFinal['metricas']);
-        }
-
-        $jsonFinal = json_encode($configFinal, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-
-        $check = $conn->prepare("SELECT id FROM metricas_config WHERE cliente_id = :cliente_id LIMIT 1");
-        $check->execute([
-            ':cliente_id' => $clienteIdPost
-        ]);
-
-        $existe = $check->fetch(PDO::FETCH_ASSOC);
-
-        if ($existe) {
-            $stmt = $conn->prepare("
-                UPDATE metricas_config
-                SET config_json = :config_json, updated_at = NOW()
-                WHERE cliente_id = :cliente_id
-            ");
-        } else {
-            $stmt = $conn->prepare("
-                INSERT INTO metricas_config (cliente_id, nome_config, config_json, created_at, updated_at)
-                VALUES (:cliente_id, 'Padrão', :config_json, NOW(), NOW())
-            ");
-        }
-
-        $stmt->execute([
-            ':cliente_id' => $clienteIdPost,
-            ':config_json' => $jsonFinal
-        ]);
-
-        header('Location: metricas.php?cliente_id=' . $clienteIdPost . '&msg=salvo');
-        exit;
-    }
-}
-
-$configCliente = carregarConfigCliente($conn, $clienteId);
-
-if ($configCliente) {
-    $configAtual = $configCliente;
-} else {
-    $configAtual = montarConfigPadraoParaCliente(
-        $metricasBase,
-        buscarNomeCliente($clientes, $clienteId)
-    );
-}
-
-$perfilAtual = $configAtual['perfil'] ?? [];
-$metricas = $configAtual['metricas'] ?? [];
-
-$categoriasBase = $metricasBase['categorias'] ?? [];
-$categorias = $configAtual['categorias'] ?? [];
-
-if (empty($categorias) && !empty($metricas)) {
-    $categorias = extrairCategoriasDasMetricas($metricas, $categoriasBase);
-}
-
-$totalClientes = count($clientes);
-
-$stmtTotal = $conn->query("SELECT COUNT(*) AS total FROM metricas_config");
-$rowTotal = $stmtTotal->fetch(PDO::FETCH_ASSOC);
-$totalConfigurados = (int)($rowTotal['total'] ?? 0);
-
-$totalMetricas = count($metricas);
-$totalAtivas = 0;
-$categoriasUsadas = [];
-
-foreach ($metricas as $metrica) {
-    if (!empty($metrica['ativo'])) {
-        $totalAtivas++;
+    if (!Csrf::isValid()) {
+        http_response_code(403);
+        exit('Token CSRF inválido.');
     }
 
-    $categoriaKey = $metrica['categoria'] ?? '';
-    if ($categoriaKey !== '') {
-        $categoriasUsadas[$categoriaKey] = true;
-    }
+    $clienteIdPost = $metricasService->save($_POST);
+    header('Location: ' . routeUrl('metricas') . '?cliente_id=' . $clienteIdPost . '&msg=salvo');
+    exit;
 }
-
-$totalCategorias = count($categoriasUsadas);
-$jsonPreview = json_encode($configAtual, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+$pageData = $metricasService->getPageData($clienteId, $mensagem);
+$clientes = $pageData['clientes'];
+$clienteId = $pageData['cliente_id'];
+$mensagem = $pageData['mensagem'];
+$erroBase = $pageData['erro_base'];
+$metricasBase = $pageData['metricas_base'];
+$configAtual = $pageData['config_atual'];
+$configPadraoCliente = $pageData['config_padrao_cliente'];
+$perfilAtual = $pageData['perfil_atual'];
+$metricas = $pageData['metricas'];
+$categorias = $pageData['categorias'];
+$totalClientes = $pageData['totais']['total_clientes'];
+$totalConfigurados = $pageData['totais']['total_configurados'];
+$totalMetricas = $pageData['totais']['total_metricas'];
+$totalAtivas = $pageData['totais']['total_ativas'];
+$totalCategorias = $pageData['totais']['total_categorias'];
+$jsonPreview = $pageData['json_preview'];
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -311,6 +56,12 @@ $jsonPreview = json_encode($configAtual, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNIC
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
     <link rel="stylesheet" href="../assets/css/global.css">
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
 </head>
 
 <body class="page page-metricas">
@@ -346,7 +97,7 @@ $jsonPreview = json_encode($configAtual, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNIC
                 </div>
 
                 <div class="page-hero-actions">
-                    <a href="metricas.php<?= $clienteId > 0 ? '?cliente_id=' . $clienteId : '' ?>" class="btn btn-secondary">Atualizar tela</a>
+                    <a href="<?= htmlspecialchars(routeUrl('metricas') . ($clienteId > 0 ? '?cliente_id=' . $clienteId : '')); ?>" class="btn btn-secondary">Atualizar tela</a>
                 </div>
             </section>
 
@@ -540,6 +291,7 @@ $jsonPreview = json_encode($configAtual, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNIC
 
             <!-- 🔥 AQUI COMEÇA O FORM POST -->
             <form method="POST" class="form-stack">
+                <?= Csrf::field() ?>
                 <input type="hidden" name="acao" value="salvar_metricas">
                 <input type="hidden" name="cliente_id" value="<?= (int)$clienteId ?>">
 
@@ -886,7 +638,7 @@ JSON atual:
                 return;
             }
 
-            const base = <?= json_encode(montarConfigPadraoParaCliente($metricasBase, buscarNomeCliente($clientes, $clienteId)), JSON_UNESCAPED_UNICODE) ?>;
+            const base = <?= json_encode($configPadraoCliente, JSON_UNESCAPED_UNICODE) ?>;
 
             const empresaSelect = document.getElementById('cliente_id');
             if (empresaSelect && empresaSelect.selectedIndex >= 0) {
@@ -1042,8 +794,10 @@ ${jsonField.value}`;
         });
     </script>
 
-    <script src="../assets/js/nav-config.js"></script>
+    <script src="../assets/js/bootstrap.js"></script>
+
 
 </body>
 
 </html>
+

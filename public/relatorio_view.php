@@ -1,59 +1,49 @@
 <?php
 
 require_once __DIR__ . '/../app/config/bootstrap.php';
-require_once __DIR__ . '/../app/models/Cliente.php';
-require_once __DIR__ . '/../app/models/ContaAds.php';
-require_once __DIR__ . '/../app/models/Campanha.php';
-require_once __DIR__ . '/../app/services/RelatorioService.php';
-
-Auth::requireLogin();
-
-$empresaId = Tenant::getEmpresaId();
 
 $db = new Database();
 $conn = $db->connect();
+try {
+    $publicToken = trim((string) ($_GET['token'] ?? ''));
+    $isPublicView = $publicToken !== '';
 
-$clienteModel  = new Cliente($conn, $empresaId);
-$contaModel    = new ContaAds($conn, $empresaId);
-$campanhaModel = new Campanha($conn, $empresaId);
-$relatorioService = new RelatorioService($conn, $empresaId);
+    if (!$isPublicView) {
+        Auth::requireLogin();
+        EmpresaAccessGuard::assertPodeOperar($conn);
+    }
 
-$clienteId   = isset($_GET['cliente_id']) && $_GET['cliente_id'] !== '' ? (int) $_GET['cliente_id'] : 0;
-$contaId     = isset($_GET['conta_id']) && $_GET['conta_id'] !== '' ? (int) $_GET['conta_id'] : 0;
-$campanhaId  = isset($_GET['campanha_id']) && $_GET['campanha_id'] !== '' ? (int) $_GET['campanha_id'] : 0;
-$periodo     = $_GET['periodo'] ?? '30';
-$dataInicio  = $_GET['data_inicio'] ?? date('Y-m-d', strtotime('-29 days'));
-$dataFim     = $_GET['data_fim'] ?? date('Y-m-d');
-$printMode   = isset($_GET['print']) && $_GET['print'] == '1';
+    $relatorioViewPageService = new RelatorioViewPageService($conn);
+    $pageData = $relatorioViewPageService->build($_GET, !$isPublicView);
 
-$cliente = $clienteId > 0 ? $clienteModel->getById($clienteId) : null;
-$conta   = $contaId > 0 ? $contaModel->getById($contaId) : null;
-$campanha = $campanhaId > 0 ? $campanhaModel->getById($campanhaId) : null;
+    $empresaId = $pageData['empresa_id'];
+    $clienteId = $pageData['cliente_id'];
+    $contaId = $pageData['conta_id'];
+    $campanhaId = $pageData['campanha_id'];
+    $campanhaStatus = $pageData['campanha_status'];
+    $periodo = $pageData['periodo'];
+    $dataInicio = $pageData['data_inicio'];
+    $dataFim = $pageData['data_fim'];
+    $dataInicioAnterior = $pageData['data_inicio_anterior'];
+    $dataFimAnterior = $pageData['data_fim_anterior'];
+    $printMode = $pageData['print_mode'];
+    $cliente = $pageData['cliente'];
+    $conta = $pageData['conta'];
+    $campanha = $pageData['campanha'];
+    $mercadoPhoneResumo = $pageData['mercado_phone_resumo'];
+    $mercadoPhoneResumoAnterior = $pageData['mercado_phone_resumo_anterior'];
+    $resumo = $pageData['resumo'];
+    $resumoAnterior = $pageData['resumo_anterior'];
+    $serie = $pageData['serie'];
+    $campanhas = $pageData['campanhas'];
+    $configMetricasJson = $pageData['config_metricas_json'];
 
-/* =========================
-   PERÍODO ATUAL E ANTERIOR
-========================= */
-$inicioTs = strtotime($dataInicio);
-$fimTs = strtotime($dataFim);
-
-$diasPeriodo = 1;
-if ($inicioTs && $fimTs && $fimTs >= $inicioTs) {
-    $diasPeriodo = (int) floor(($fimTs - $inicioTs) / 86400) + 1;
+    $relatorioService = new RelatorioService($conn, $empresaId);
+    $insights = $relatorioService->getInsightsAutomaticos($resumo, $campanhas);
+} catch (Throwable $e) {
+    http_response_code(403);
+    exit($e->getMessage());
 }
-
-$dataFimAnterior = date('Y-m-d', strtotime($dataInicio . ' -1 day'));
-$dataInicioAnterior = date('Y-m-d', strtotime($dataFimAnterior . ' -' . ($diasPeriodo - 1) . ' days'));
-
-/* =========================
-   DADOS
-========================= */
-
-$resumo = $relatorioService->getResumoGeral($contaId ?: null, $campanhaId ?: null, $dataInicio, $dataFim);
-$resumoAnterior = $relatorioService->getResumoGeral($contaId ?: null, $campanhaId ?: null, $dataInicioAnterior, $dataFimAnterior);
-
-$serie = $relatorioService->getSerieTemporal($contaId ?: null, $campanhaId ?: null, $dataInicio, $dataFim);
-$campanhas = $relatorioService->getCampanhasRelatorio($contaId ?: null, $campanhaId ?: null, $dataInicio, $dataFim);
-$insights = $relatorioService->getInsightsAutomaticos($resumo, $campanhas);
 
 
 
@@ -77,333 +67,62 @@ function formatPercentBr($v, int $dec = 1): string
 
 function metricaAtivaRelatorio(array $configMetricas, string $chave): bool
 {
-    if (empty($configMetricas)) {
-        return true;
-    }
-
-    return !empty($configMetricas[$chave]['ativo']);
+    return RelatorioMetricsHelper::isMetricActive($configMetricas, $chave);
 }
 
 function calcularPercentualSeguroRelatorio($atual, $base): float
 {
-    $atual = normalizarNumeroRelatorio($atual);
-    $base = normalizarNumeroRelatorio($base);
-
-    if ($base <= 0) {
-        return 0;
-    }
-
-    return ($atual / $base) * 100;
+    return RelatorioMetricsHelper::calculateSafePercent($atual, $base);
 }
 
 function obterLabelRelatorio(string $chave, array $config = []): string
 {
-    if (!empty($config['label'])) {
-        return $config['label'];
-    }
-
-    $labels = [
-        'alcance' => 'Alcance',
-        'impressoes' => 'Impressões',
-        'cliques' => 'Cliques',
-        'cliques_link' => 'Cliques no Link',
-        'resultados' => 'Resultados',
-        'leads' => 'Leads',
-        'conversas_whatsapp' => 'Conversas WhatsApp',
-        'conversoes' => 'Conversões',
-        'compras' => 'Compras',
-    ];
-
-    return $labels[$chave] ?? ucfirst(str_replace('_', ' ', $chave));
+    return RelatorioMetricsHelper::resolveLabel($chave, $config);
 }
 
 function montarFunilMetricasRelatorio(array $configMetricas, array $resumo, array $resumoAnterior = []): array
 {
-    $candidatos = [];
-
-    if (($resumo['alcance'] ?? 0) > 0 && metricaAtivaRelatorio($configMetricas, 'alcance')) {
-        $candidatos[] = 'alcance';
-    }
-
-    if (($resumo['impressoes'] ?? 0) > 0 && metricaAtivaRelatorio($configMetricas, 'impressoes')) {
-        $candidatos[] = 'impressoes';
-    }
-
-    if (($resumo['cliques_link'] ?? 0) > 0 && metricaAtivaRelatorio($configMetricas, 'cliques_link')) {
-        $candidatos[] = 'cliques_link';
-    } elseif (($resumo['cliques'] ?? 0) > 0 && metricaAtivaRelatorio($configMetricas, 'cliques')) {
-        $candidatos[] = 'cliques';
-    }
-
-    if (($resumo['leads'] ?? 0) > 0 && metricaAtivaRelatorio($configMetricas, 'leads')) {
-        $candidatos[] = 'leads';
-    }
-
-    if (($resumo['conversas_whatsapp'] ?? 0) > 0 && metricaAtivaRelatorio($configMetricas, 'conversas_whatsapp')) {
-        $candidatos[] = 'conversas_whatsapp';
-    }
-
-    if (($resumo['conversoes'] ?? 0) > 0 && metricaAtivaRelatorio($configMetricas, 'conversoes')) {
-        $candidatos[] = 'conversoes';
-    }
-
-    if (($resumo['compras'] ?? 0) > 0 && metricaAtivaRelatorio($configMetricas, 'compras')) {
-        $candidatos[] = 'compras';
-    }
-
-    $temFinalEspecifico =
-        !empty($resumo['leads']) ||
-        !empty($resumo['conversas_whatsapp']) ||
-        !empty($resumo['conversoes']) ||
-        !empty($resumo['compras']);
-
-    if (
-        !$temFinalEspecifico &&
-        ($resumo['resultados'] ?? 0) > 0 &&
-        metricaAtivaRelatorio($configMetricas, 'resultados')
-    ) {
-        $candidatos[] = 'resultados';
-    }
-
-    $candidatos = array_values(array_unique($candidatos));
-
-    $itens = [];
-
-    foreach ($candidatos as $chave) {
-        $valorAtual = normalizarNumeroRelatorio($resumo[$chave] ?? 0);
-        $valorAnterior = normalizarNumeroRelatorio($resumoAnterior[$chave] ?? 0);
-
-        if ($valorAtual <= 0) {
-            continue;
-        }
-
-        $config = $configMetricas[$chave] ?? [];
-        $estado = getEstadoMetricaRelatorio($config, $valorAtual);
-
-        $itens[] = [
-            'chave' => $chave,
-            'label' => obterLabelRelatorio($chave, $config),
-            'valor' => $valorAtual,
-            'valor_formatado' => formatarValorRelatorio($chave, $valorAtual),
-            'estado' => $estado,
-            'variacao_percentual' => calcularVariacaoPercentualRelatorio($valorAtual, $valorAnterior),
-        ];
-    }
-
-    if (empty($itens)) {
-        return [];
-    }
-
-    $valorTopo = normalizarNumeroRelatorio($itens[0]['valor']);
-
-    foreach ($itens as $index => &$item) {
-        $valorAnteriorEtapa = $index === 0
-            ? $item['valor']
-            : normalizarNumeroRelatorio($itens[$index - 1]['valor']);
-
-        $item['percentual_etapa'] = $index === 0
-            ? 100
-            : calcularPercentualSeguroRelatorio($item['valor'], $valorAnteriorEtapa);
-
-        $item['percentual_topo'] = $index === 0
-            ? 100
-            : calcularPercentualSeguroRelatorio($item['valor'], $valorTopo);
-    }
-
-    unset($item);
-
-    return $itens;
-}
-
-function normalizarNumeroRelatorio($valor): float
-{
-    if ($valor === null || $valor === '') {
-        return 0.0;
-    }
-
-    return (float) str_replace(',', '.', (string) $valor);
-}
-
-function carregarConfigMetricasClienteRelatorio(PDO $conn, $contaId): array
-{
-    if (empty($contaId)) {
-        return [];
-    }
-
-    $sql = "
-        SELECT mc.config_json
-        FROM metricas_config mc
-        INNER JOIN contas_ads ca ON ca.cliente_id = mc.cliente_id
-        WHERE ca.id = :conta_id
-        LIMIT 1
-    ";
-
-    $stmt = $conn->prepare($sql);
-    $stmt->execute([
-        ':conta_id' => $contaId
-    ]);
-
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if (!$row || empty($row['config_json'])) {
-        return [];
-    }
-
-    $json = json_decode($row['config_json'], true);
-
-    return is_array($json) ? $json : [];
+    return RelatorioMetricsHelper::buildFunnelMetrics($configMetricas, $resumo, $resumoAnterior);
 }
 
 function classificarValorMetricaRelatorio(array $config, $valor): string
 {
-    $valor = normalizarNumeroRelatorio($valor);
-
-    $tipo = trim((string) ($config['tipo_leitura'] ?? ''));
-
-    $criticoMin = normalizarNumeroRelatorio($config['critico_min'] ?? null);
-    $alertaMin  = normalizarNumeroRelatorio($config['alerta_min'] ?? null);
-    $idealMin   = normalizarNumeroRelatorio($config['ideal_min'] ?? null);
-    $idealMax   = normalizarNumeroRelatorio($config['ideal_max'] ?? null);
-    $alertaMax  = normalizarNumeroRelatorio($config['alerta_max'] ?? null);
-    $criticoMax = normalizarNumeroRelatorio($config['critico_max'] ?? null);
-
-    $temFaixaMin = ($criticoMin > 0 || $alertaMin > 0 || $idealMin > 0);
-    $temFaixaMax = ($idealMax > 0 || $alertaMax > 0 || $criticoMax > 0);
-    $temAlgumaFaixa = $temFaixaMin || $temFaixaMax;
-
-    if ($tipo === '' || !$temAlgumaFaixa) {
-        return 'metric-value-neutral';
-    }
-
-    if ($tipo === 'menor_melhor') {
-        if ($idealMax > 0 && $valor <= $idealMax) return 'metric-value-good';
-        if ($alertaMax > 0 && $valor <= $alertaMax) return 'metric-value-warning';
-        if ($criticoMax > 0 && $valor >= $criticoMax) return 'metric-value-bad';
-        return 'metric-value-neutral';
-    }
-
-    if ($tipo === 'maior_melhor') {
-        if ($idealMin > 0 && $valor >= $idealMin) return 'metric-value-good';
-        if ($alertaMin > 0 && $valor >= $alertaMin) return 'metric-value-warning';
-        if ($criticoMin > 0 && $valor <= $criticoMin) return 'metric-value-bad';
-        return 'metric-value-neutral';
-    }
-
-    if ($tipo === 'faixa_ideal') {
-        if ($idealMin > 0 && $idealMax > 0 && $valor >= $idealMin && $valor <= $idealMax) {
-            return 'metric-value-good';
-        }
-
-        $warningInferior = ($alertaMin > 0 && $idealMin > 0 && $valor >= $alertaMin && $valor < $idealMin);
-        $warningSuperior = ($idealMax > 0 && $alertaMax > 0 && $valor > $idealMax && $valor <= $alertaMax);
-
-        if ($warningInferior || $warningSuperior) {
-            return 'metric-value-warning';
-        }
-
-        $badInferior = ($criticoMin > 0 && $valor <= $criticoMin);
-        $badSuperior = ($criticoMax > 0 && $valor >= $criticoMax);
-
-        if ($badInferior || $badSuperior) {
-            return 'metric-value-bad';
-        }
-
-        return 'metric-value-neutral';
-    }
-
-    return 'metric-value-neutral';
+    return RelatorioMetricsHelper::classifyMetricValue($config, $valor);
 }
 
 function getEstadoMetricaRelatorio(array $config, $valor): string
 {
-    $classe = classificarValorMetricaRelatorio($config, $valor);
-
-    if ($classe === 'metric-value-good') return 'good';
-    if ($classe === 'metric-value-warning') return 'warning';
-    if ($classe === 'metric-value-bad') return 'bad';
-
-    return 'neutral';
+    return RelatorioMetricsHelper::getMetricState($config, $valor);
 }
 
 function calcularVariacaoPercentualRelatorio($valorAtual, $valorAnterior): ?float
 {
-    $valorAtual = normalizarNumeroRelatorio($valorAtual);
-    $valorAnterior = normalizarNumeroRelatorio($valorAnterior);
-
-    if ($valorAnterior == 0.0) {
-        return null;
-    }
-
-    return (($valorAtual - $valorAnterior) / $valorAnterior) * 100;
+    return RelatorioMetricsHelper::calculateVariationPercent($valorAtual, $valorAnterior);
 }
 
 function classificarTrendRelatorio(array $config, $valorAtual, $valorAnterior): string
 {
-    $valorAtual = normalizarNumeroRelatorio($valorAtual);
-    $valorAnterior = normalizarNumeroRelatorio($valorAnterior);
-
-    if ($valorAnterior == 0.0 || $valorAtual == $valorAnterior) {
-        return 'metric-trend-neutral';
-    }
-
-    $tipo = $config['tipo_leitura'] ?? 'faixa_ideal';
-
-    if ($tipo === 'menor_melhor') {
-        return $valorAtual < $valorAnterior
-            ? 'metric-trend-down-good'
-            : 'metric-trend-up-bad';
-    }
-
-    if ($tipo === 'maior_melhor') {
-        return $valorAtual > $valorAnterior
-            ? 'metric-trend-up-good'
-            : 'metric-trend-down-bad';
-    }
-
-    $classeAtual = classificarValorMetricaRelatorio($config, $valorAtual);
-    $classeAnterior = classificarValorMetricaRelatorio($config, $valorAnterior);
-
-    if ($classeAtual === $classeAnterior) {
-        return 'metric-trend-neutral';
-    }
-
-    if (
-        $classeAtual === 'metric-value-good' ||
-        ($classeAtual === 'metric-value-warning' && $classeAnterior === 'metric-value-bad')
-    ) {
-        return $valorAtual >= $valorAnterior
-            ? 'metric-trend-up-good'
-            : 'metric-trend-down-good';
-    }
-
-    return $valorAtual >= $valorAnterior
-        ? 'metric-trend-up-bad'
-        : 'metric-trend-down-bad';
+    return RelatorioMetricsHelper::classifyTrend($config, $valorAtual, $valorAnterior);
 }
 
 function formatarValorRelatorio(string $chave, $valor): string
 {
-    $moneyKeys = ['valor_gasto', 'cpc', 'cpl', 'cpm', 'custo_por_compra', 'custo_por_conversa', 'custo_resultado'];
-    $percentKeys = ['ctr', 'taxa_conversao'];
-    $integerKeys = ['impressoes', 'cliques_link', 'leads', 'resultados', 'compras', 'conversas_whatsapp'];
+    return RelatorioMetricsHelper::formatMetricValue($chave, $valor);
+}
 
-    if (in_array($chave, $moneyKeys, true)) {
-        return moneyBr((float) $valor);
-    }
+function formatarValorMercadoPhoneRelatorio(string $chave, $valor): string
+{
+    return RelatorioMetricsHelper::formatMercadoPhoneValue($chave, $valor);
+}
 
-    if (in_array($chave, $percentKeys, true)) {
-        return numberBr($valor, 2) . '%';
-    }
+function obterEstadoMercadoPhoneRelatorio($valorAtual, $valorAnterior): string
+{
+    return RelatorioMetricsHelper::getMercadoPhoneState($valorAtual, $valorAnterior);
+}
 
-    if (in_array($chave, $integerKeys, true)) {
-        return numberBr($valor);
-    }
-
-    if ($chave === 'roas') {
-        return numberBr($valor, 2) . 'x';
-    }
-
-    return numberBr($valor, 2);
+function obterClasseTrendMercadoPhoneRelatorio($valorAtual, $valorAnterior): string
+{
+    return RelatorioMetricsHelper::getMercadoPhoneTrendClass($valorAtual, $valorAnterior);
 }
 
 
@@ -411,11 +130,12 @@ function formatarValorRelatorio(string $chave, $valor): string
 /* =========================
    CONFIG MÉTRICAS
 ========================= */
-$configMetricasJson = carregarConfigMetricasClienteRelatorio($conn, $contaId);
+$configMetricasJson = $configMetricasJson ?? [];
 $configMetricas = $configMetricasJson['metricas'] ?? [];
 
 if (empty($configMetricas)) {
     $configMetricas = [
+        'valor_gasto' => ['label' => 'Valor Gasto', 'tipo_leitura' => 'faixa_ideal', 'ativo' => true],
         'ctr' => ['label' => 'CTR', 'tipo_leitura' => 'maior_melhor', 'ativo' => true],
         'resultados' => ['label' => 'Resultados', 'tipo_leitura' => 'maior_melhor', 'ativo' => true],
         'cpl' => ['label' => 'CPL', 'tipo_leitura' => 'menor_melhor', 'ativo' => true],
@@ -436,10 +156,42 @@ if (empty($configMetricas)) {
 
 $funilMetricas = montarFunilMetricasRelatorio($configMetricas, $resumo, $resumoAnterior);
 
+if (!empty($mercadoPhoneResumo) && (int) ($mercadoPhoneResumo['pedidos'] ?? 0) > 0) {
+    $pedidoAtual = (int) ($mercadoPhoneResumo['pedidos'] ?? 0);
+    $pedidoAnterior = (int) ($mercadoPhoneResumoAnterior['pedidos'] ?? 0);
+
+    $valorTopoFunil = !empty($funilMetricas)
+        ? RelatorioMetricsHelper::normalizeNumber($funilMetricas[0]['valor'] ?? 0)
+        : $pedidoAtual;
+
+    $valorEtapaAnterior = !empty($funilMetricas)
+        ? RelatorioMetricsHelper::normalizeNumber($funilMetricas[count($funilMetricas) - 1]['valor'] ?? 0)
+        : $pedidoAtual;
+
+    $funilMetricas[] = [
+        'chave' => 'mercado_phone_pedidos',
+        'label' => 'Pedidos',
+        'valor' => $pedidoAtual,
+        'valor_formatado' => numberBr($pedidoAtual),
+        'estado' => 'neutral',
+        'variacao_percentual' => calcularVariacaoPercentualRelatorio($pedidoAtual, $pedidoAnterior),
+        'percentual_etapa' => empty($funilMetricas) ? 100 : calcularPercentualSeguroRelatorio($pedidoAtual, $valorEtapaAnterior),
+        'percentual_topo' => empty($funilMetricas) ? 100 : calcularPercentualSeguroRelatorio($pedidoAtual, $valorTopoFunil),
+    ];
+}
+
 /* =========================
    MAPA DE CARDS
 ========================= */
 $metricCards = [
+    [
+        'key' => 'valor_gasto',
+        'label' => 'Valor Gasto',
+        'value' => $resumo['gasto_total'] ?? ($resumo['valor_gasto'] ?? 0),
+        'previous' => $resumoAnterior['gasto_total'] ?? ($resumoAnterior['valor_gasto'] ?? 0),
+        'sub' => 'Comparado ao perÃ­odo anterior',
+        'config_key' => 'valor_gasto',
+    ],
     [
         'key' => 'ctr',
         'label' => 'CTR',
@@ -616,7 +368,7 @@ $metricCards = [
                 $classeTrend = classificarTrendRelatorio($config, $valorAtual, $valorAnterior);
                 $variacao = calcularVariacaoPercentualRelatorio($valorAtual, $valorAnterior);
 
-                $trendUp = normalizarNumeroRelatorio($valorAtual) >= normalizarNumeroRelatorio($valorAnterior);
+                $trendUp = RelatorioMetricsHelper::normalizeNumber($valorAtual) >= RelatorioMetricsHelper::normalizeNumber($valorAnterior);
                 ?>
                 <div class="card metric-card metric-dynamic metric-state-<?= htmlspecialchars($estado); ?>">
                     <div class="metric-head">
@@ -648,6 +400,62 @@ $metricCards = [
                 </div>
             <?php endforeach; ?>
         </div>
+
+        <?php if (!empty($mercadoPhoneResumo)): ?>
+            <?php
+            $mercadoPhoneCards = [
+                ['key' => 'pedidos', 'label' => 'Pedidos'],
+                ['key' => 'faturamento', 'label' => 'Faturamento'],
+                ['key' => 'itens_vendidos', 'label' => 'Itens Vendidos'],
+                ['key' => 'ticket_medio', 'label' => 'Ticket Medio'],
+            ];
+            ?>
+            <div class="section">
+                <h2 class="section-title">Mercado Phone</h2>
+                <div class="grid">
+                    <?php foreach ($mercadoPhoneCards as $mpCard): ?>
+                        <?php
+                        $chave = $mpCard['key'];
+                        $valorAtual = $mercadoPhoneResumo[$chave] ?? 0;
+                        $valorAnterior = $mercadoPhoneResumoAnterior[$chave] ?? 0;
+                        $variacao = calcularVariacaoPercentualRelatorio($valorAtual, $valorAnterior);
+                        $trendUp = RelatorioMetricsHelper::normalizeNumber($valorAtual) >= RelatorioMetricsHelper::normalizeNumber($valorAnterior);
+                        $estadoMp = obterEstadoMercadoPhoneRelatorio($valorAtual, $valorAnterior);
+                        $classeTrendMp = obterClasseTrendMercadoPhoneRelatorio($valorAtual, $valorAnterior);
+                        ?>
+                        <div class="card metric-card metric-dynamic metric-state-<?= htmlspecialchars($estadoMp); ?>">
+                            <div class="metric-head">
+                                <span class="metric-label"><?= htmlspecialchars($mpCard['label']); ?></span>
+                                <span class="metric-trend <?= htmlspecialchars($classeTrendMp); ?>">
+                                    <?php if ($variacao !== null): ?>
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                            <?php if ($trendUp): ?>
+                                                <path d="M7 17L17 7"></path>
+                                                <path d="M8 7h9v9"></path>
+                                            <?php else: ?>
+                                                <path d="M7 7l10 10"></path>
+                                                <path d="M8 17h9V8"></path>
+                                            <?php endif; ?>
+                                        </svg>
+                                        <?= htmlspecialchars(number_format(abs($variacao), 1, ',', '.')); ?>%
+                                    <?php else: ?>
+                                        -
+                                    <?php endif; ?>
+                                </span>
+                            </div>
+
+                            <div class="metric-value metric-value-neutral">
+                                <?= htmlspecialchars(formatarValorMercadoPhoneRelatorio($chave, $valorAtual)); ?>
+                            </div>
+
+                            <div class="metric-sub">
+                                <?= !empty($mercadoPhoneResumo['has_data']) ? 'Comparado ao periodo anterior' : 'Integracao ativa aguardando dados sincronizados'; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        <?php endif; ?>
 
         <div class="section">
             <h2 class="section-title">Evolução do período</h2>

@@ -4,32 +4,28 @@ require_once __DIR__ . '/../app/config/bootstrap.php';
 
 Auth::start();
 
-// if (Auth::check()) {
-//     header('Location: dashboard.php');
-//     exit;
-// }
-
 $db = new Database();
 $conn = $db->connect();
 
-$usuarioModel = new Usuario($conn);
-
+$service = new LoginPageService($conn);
 $erro = '';
+$politicaAcesso = $service->getAccessPolicy();
+
+$initialRedirect = $service->resolveInitialRedirect();
+if ($initialRedirect !== null) {
+    header('Location: ' . $initialRedirect);
+    exit;
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = trim($_POST['email'] ?? '');
-    $senha = $_POST['senha'] ?? '';
-
-    if ($email === '' || $senha === '') {
-        $erro = 'Preencha e-mail e senha.';
+    if (!Csrf::isValid()) {
+        $erro = 'Token CSRF invalido.';
     } else {
-        $auth = $usuarioModel->autenticar($email, $senha);
+        $result = $service->authenticate($_POST);
+        $erro = $result['erro'];
 
-        if (!$auth) {
-            $erro = 'E-mail, senha ou vínculo com empresa inválido.';
-        } else {
-            Auth::login($auth['usuario'], $auth['empresa_id']);
-            header('Location: dashboard.php');
+        if (($result['redirect'] ?? null) !== null) {
+            header('Location: ' . $result['redirect']);
             exit;
         }
     }
@@ -48,33 +44,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body class="login-page">
     <main class="auth-shell">
         <section class="auth-stage">
-
-            <!-- VOLTAR -->
-            <!-- <a href="index.php" class="auth-back" aria-label="Voltar">
-                <span class="auth-back-icon">
-                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                        <path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                </span>
-                <span>Voltar</span>
-            </a> -->
-
             <div class="auth-center">
-                
                 <div class="auth-brand" aria-hidden="true">
                     <div class="auth-brand-ring"></div>
                 </div>
 
                 <header class="auth-header">
                     <h1>Bem-vindo de volta</h1>
-                    <p>Acesse o painel da sua empresa</p>
+                    <p>Acesse o painel da sua empresa com o e-mail convidado ou uma conta ja ativa.</p>
                 </header>
 
-                <?php if ($erro): ?>
-                    <div class="auth-error"><?= htmlspecialchars($erro) ?></div>
+                <?php if ($erro !== ''): ?>
+                    <div class="auth-error"><?= htmlspecialchars($erro); ?></div>
+                <?php endif; ?>
+
+                <?php if ($politicaAcesso['acesso_por_convite']): ?>
+                    <div class="auth-note">
+                        <strong>Acesso controlado por convite</strong>
+                        <span>Novas contas são ativadas apenas pelo link enviado ao responsável da empresa. Se você recebeu o convite, conclua o cadastro diretamente pelo e-mail.</span>
+                    </div>
                 <?php endif; ?>
 
                 <form method="POST" class="auth-form" autocomplete="on">
+                    <?= Csrf::field() ?>
+
                     <div class="field">
                         <label for="email">E-mail</label>
                         <input
@@ -82,7 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             id="email"
                             name="email"
                             placeholder="Seu e-mail"
-                            value="<?= htmlspecialchars($_POST['email'] ?? '') ?>"
+                            value="<?= htmlspecialchars((string) ($_POST['email'] ?? '')); ?>"
                             required>
                     </div>
 
@@ -97,27 +90,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
 
                     <button type="submit" class="btn-primary">Entrar</button>
-
-                    <a href="recuperar-senha.php" class="magic-link">Esqueci minha senha</a>
-
-                    <div class="divider">
-                        <span>ou</span>
-                    </div>
-
-                    <a href="#" class="btn-secondary">Single sign-on (SSO)</a>
+                    <a href="<?= htmlspecialchars(routeUrl('recuperar-senha')); ?>" class="magic-link">Esqueci minha senha</a>
                 </form>
 
                 <div class="remember">
-                    <p>Primeira vez aqui? <a href="#">Crie sua conta</a></p>
+                    <p>Primeiro acesso? Use o convite recebido por e-mail para ativar sua conta.</p>
                 </div>
 
                 <footer class="auth-footer">
                     <p>
                         Ao entrar, você concorda com nossos
-                        <a href="#">Termos de Uso</a>
+                        <a href="<?= htmlspecialchars(routeUrl('termos')); ?>">Termos de Uso</a>
                         e
-                        <a href="#">Política de Privacidade</a>.
+                        <a href="<?= htmlspecialchars(routeUrl('privacidade')); ?>">Política de Privacidade</a>.
                     </p>
+                    <?php if (!$politicaAcesso['sso_ativo'] || !$politicaAcesso['cadastro_publico_ativo']): ?>
+                        <p class="auth-footer-secondary">SSO e cadastro público permanecem desativados nesta operação.</p>
+                    <?php endif; ?>
                 </footer>
             </div>
         </section>

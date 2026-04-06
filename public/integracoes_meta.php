@@ -4,41 +4,39 @@ require_once __DIR__ . '/../app/config/bootstrap.php';
 
 Auth::requireLogin();
 
-$empresaId = Auth::getEmpresaId();
-$usuarioId = Auth::getUsuarioId();
-
 $db = new Database();
 $conn = $db->connect();
 
-$clienteModel = new Cliente($conn, $empresaId);
+EmpresaAccessGuard::assertPodeOperar($conn);
 
-$stmt = $conn->query("SELECT id, nome FROM clientes ORDER BY nome ASC");
-$clientes = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-$clienteId = isset($_GET['cliente_id']) ? (int)$_GET['cliente_id'] : (int)($clientes[0]['id'] ?? 0);
-
-$clienteSelecionado = null;
-foreach ($clientes as $c) {
-    if ((int)$c['id'] === $clienteId) {
-        $clienteSelecionado = $c;
-        break;
-    }
-}
-
+$empresaId = Auth::getEmpresaId();
+$usuarioId = Auth::getUsuarioId();
+$pageData = (new IntegracaoMetaPageService($conn, $empresaId))->getPageData($_GET);
+$clientes = $pageData['clientes'];
+$clienteId = $pageData['cliente_id'];
+$clienteSelecionado = $pageData['cliente_selecionado'];
+$tokenMeta = $pageData['token_meta'];
+$conectado = $pageData['conectado'];
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Integrações Meta - Dashboard ALP</title>
+    <title>Integracoes Meta - Dashboard ALP</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
-    <!-- IMPORTANTE -->
     <link rel="stylesheet" href="../assets/css/global.css">
+    <link rel="stylesheet" href="../assets/css/toast.css">
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
 </head>
 <body class="page page-integracoes">
 
@@ -58,17 +56,17 @@ foreach ($clientes as $c) {
                 </div>
 
                 <div>
-                    <span class="page-kicker">Integração</span>
+                    <span class="page-kicker">Integracao</span>
                     <h1 class="page-title">Meta Ads</h1>
                     <p class="page-subtitle">
-                        Conecte contas do Meta Ads aos clientes do sistema para liberar sincronizações,
-                        insights automáticos e análises completas dentro do dashboard.
+                        Conecte contas do Meta Ads aos clientes do sistema para liberar sincronizacoes,
+                        insights automaticos e analises completas dentro do dashboard.
                     </p>
                 </div>
             </div>
 
             <div class="page-hero-actions">
-                <a href="integracoes_meta.php" class="btn btn-secondary">Atualizar</a>
+                <a href="<?= htmlspecialchars(routeUrl('integracoes_meta')); ?>" class="btn btn-secondary">Atualizar</a>
             </div>
         </section>
 
@@ -78,34 +76,37 @@ foreach ($clientes as $c) {
                     <div>
                         <h3>Selecionar cliente</h3>
                         <p class="panel-subtitle">
-                            Escolha o cliente que você deseja conectar com a Meta.
+                            Escolha o cliente que voce deseja conectar com a Meta.
                         </p>
                     </div>
                 </div>
 
-                <form method="GET" class="form-stack">
-                    <div class="field field-select">
-                        <label for="cliente_id">Cliente</label>
-                        <select name="cliente_id" id="cliente_id" onchange="this.form.submit()">
-                            <?php foreach ($clientes as $cliente): ?>
-                                <option
-                                    value="<?= (int)$cliente['id'] ?>"
-                                    <?= $clienteId === (int)$cliente['id'] ? 'selected' : '' ?>
-                                >
-                                    <?= htmlspecialchars($cliente['nome']) ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
+                <?php if (empty($clientes)): ?>
+                    <div class="data-item-empty">
+                        Nenhum cliente cadastrado para esta empresa.
                     </div>
-                </form>
+                <?php else: ?>
+                    <form method="GET" class="form-stack">
+                        <div class="field field-select">
+                            <label for="cliente_id">Cliente</label>
+                            <select name="cliente_id" id="cliente_id" onchange="this.form.submit()">
+                                <?php foreach ($clientes as $cliente): ?>
+                                    <option value="<?= (int) $cliente['id'] ?>" <?= $clienteId === (int) $cliente['id'] ? 'selected' : '' ?>>
+                                        <?= htmlspecialchars($cliente['nome']) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </form>
+                <?php endif; ?>
             </div>
 
             <div class="panel list-panel">
                 <div class="panel-header">
                     <div>
-                        <h3>Status da integração</h3>
+                        <h3>Status da integracao</h3>
                         <p class="panel-subtitle">
-                            Conecte a conta Meta para começar a coletar dados automaticamente.
+                            Conecte a conta Meta para comecar a coletar dados automaticamente.
                         </p>
                     </div>
                 </div>
@@ -119,41 +120,54 @@ foreach ($clientes as $c) {
 
                             <div class="data-item-meta">
                                 <span>
-                                    <strong>Status:</strong> Não conectado
+                                    <strong>Status:</strong>
+                                    <?= $conectado ? 'Conectado' : 'Nao conectado' ?>
                                 </span>
 
                                 <span>
-                                    <strong>Integração:</strong> Meta Ads API
+                                    <strong>Integracao:</strong> Meta Ads API
+                                </span>
+
+                                <span>
+                                    <strong>Meta User ID:</strong>
+                                    <?= !empty($tokenMeta['meta_user_id']) ? htmlspecialchars($tokenMeta['meta_user_id']) : 'Nao disponivel' ?>
+                                </span>
+
+                                <span>
+                                    <strong>Expira em:</strong>
+                                    <?= !empty($tokenMeta['expires_at']) ? htmlspecialchars($tokenMeta['expires_at']) : 'Nao informado' ?>
                                 </span>
                             </div>
                         </div>
 
                         <div class="data-item-right">
-                            <span class="badge badge-yellow">Pendente</span>
+                            <?php if ($conectado): ?>
+                                <span class="badge badge-green">Conectado</span>
+                            <?php else: ?>
+                                <span class="badge badge-yellow">Pendente</span>
+                            <?php endif; ?>
 
-                            <a
-                                href="callback_meta.php?action=login&cliente_id=<?= (int)$clienteId ?>"
-                                class="btn btn-primary btn-sm"
-                            >
-                                Conectar Meta
-                            </a>
+                            <?php if (!empty($clienteSelecionado)): ?>
+                                <a
+                                    href="<?= htmlspecialchars(routeUrl('callback_meta') . '?action=login&cliente_id=' . (int) $clienteId) ?>"
+                                    class="btn btn-primary btn-sm"
+                                >
+                                    <?= $conectado ? 'Reconectar Meta' : 'Conectar Meta' ?>
+                                </a>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
 
                 <div class="data-item-empty" style="margin-top: 12px;">
-                    Após conectar, você poderá sincronizar campanhas, contas e insights automaticamente.
+                    Apos conectar, voce podera sincronizar campanhas, contas e insights automaticamente.
                 </div>
             </div>
         </section>
     </main>
 </div>
 
-<script src="https://unpkg.com/lucide@latest"></script>
-<script>
-    lucide.createIcons();
-</script>
-
-<script src="../assets/js/nav-config.js"></script>
+<?php Flash::renderScript(); ?>
+<script src="../assets/js/bootstrap.js"></script>
 </body>
 </html>

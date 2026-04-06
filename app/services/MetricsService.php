@@ -103,6 +103,7 @@ class MetricsService
     {
         $periodo = isset($filters['periodo']) ? $filters['periodo'] : '90';
         $hoje = new DateTime('today');
+        $ontem = (clone $hoje)->modify('-1 day');
 
         if ($periodo === 'custom') {
             $dataInicio = !empty($filters['data_inicio']) ? $filters['data_inicio'] : $hoje->format('Y-m-d');
@@ -127,13 +128,13 @@ class MetricsService
             $dias = 90;
         }
 
-        $inicio = clone $hoje;
+        $inicio = clone $ontem;
         $inicio->modify('-' . ($dias - 1) . ' days');
 
         return [
             'periodo'     => (string) $dias,
             'data_inicio' => $inicio->format('Y-m-d'),
-            'data_fim'    => $hoje->format('Y-m-d'),
+            'data_fim'    => $ontem->format('Y-m-d'),
             'label'       => 'Últimos ' . $dias . ' dias'
         ];
     }
@@ -154,6 +155,17 @@ class MetricsService
         if (!empty($filters['campanha_id'])) {
             $where[] = "i.campanha_id = :campanha_id";
             $params[':campanha_id'] = (int) $filters['campanha_id'];
+        }
+
+        if (!empty($filters['campanha_status'])) {
+            $where[] = "EXISTS (
+                SELECT 1
+                FROM campanhas c
+                WHERE c.id = i.campanha_id
+                  AND c.empresa_id = i.empresa_id
+                  AND UPPER(COALESCE(NULLIF(c.effective_status, ''), NULLIF(c.status, ''))) = :campanha_status
+            )";
+            $params[':campanha_status'] = strtoupper((string) $filters['campanha_status']);
         }
 
         if (!empty($filters['cliente_id'])) {
@@ -360,8 +372,18 @@ class MetricsService
         $campanhaNome = 'Todas as campanhas';
 
         if (!empty($filters['conta_id'])) {
-            $stmt = $this->conn->prepare("SELECT nome FROM contas_ads WHERE id = :id LIMIT 1");
-            $stmt->execute([':id' => (int)$filters['conta_id']]);
+            $sql = "SELECT nome FROM contas_ads WHERE id = :id";
+            $params = [':id' => (int) $filters['conta_id']];
+
+            if (!empty($filters['empresa_id'])) {
+                $sql .= " AND empresa_id = :empresa_id";
+                $params[':empresa_id'] = (int) $filters['empresa_id'];
+            }
+
+            $sql .= " LIMIT 1";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute($params);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($row && !empty($row['nome'])) {
                 $contaNome = $row['nome'];
@@ -369,8 +391,18 @@ class MetricsService
         }
 
         if (!empty($filters['campanha_id'])) {
-            $stmt = $this->conn->prepare("SELECT nome FROM campanhas WHERE id = :id LIMIT 1");
-            $stmt->execute([':id' => (int)$filters['campanha_id']]);
+            $sql = "SELECT nome FROM campanhas WHERE id = :id";
+            $params = [':id' => (int) $filters['campanha_id']];
+
+            if (!empty($filters['empresa_id'])) {
+                $sql .= " AND empresa_id = :empresa_id";
+                $params[':empresa_id'] = (int) $filters['empresa_id'];
+            }
+
+            $sql .= " LIMIT 1";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute($params);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($row && !empty($row['nome'])) {
                 $campanhaNome = $row['nome'];
@@ -380,6 +412,7 @@ class MetricsService
         return [
             'conta_nome' => $contaNome,
             'campanha_nome' => $campanhaNome,
+            'campanha_status' => !empty($filters['campanha_status']) ? (string) $filters['campanha_status'] : 'TODAS',
         ];
     }
 }

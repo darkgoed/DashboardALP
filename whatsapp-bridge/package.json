@@ -1,0 +1,20 @@
+{
+  "name": "dashboardalp-whatsapp-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bridge HTTP para envio de mensagens WhatsApp usando whatsapp-web.js",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "qrcode": "^1.5.4",
+    "whatsapp-web.js": "^1.26.0"
+  }
+}

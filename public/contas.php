@@ -4,80 +4,51 @@ require_once __DIR__ . '/../app/config/bootstrap.php';
 
 Auth::requireLogin();
 
-$empresaId = Auth::getEmpresaId();
-$usuarioId = Auth::getUsuarioId();
-
 $db = new Database();
 $conn = $db->connect();
 
-$clienteModel = new Cliente($conn, $empresaId);
+EmpresaAccessGuard::assertPodeOperar($conn);
 
-$cliente = new Cliente($conn, $empresaId);
-$conta = new ContaAds($conn, $empresaId);
-
-$clientes = $cliente->getAll();
+$empresaId = Auth::getEmpresaId();
+$usuarioId = Auth::getUsuarioId();
+$contaManagementService = new ContaManagementService($conn, $empresaId);
+$contaWriteService = new ContaWriteService($conn, $empresaId);
 
 $acao = $_GET['acao'] ?? '';
-$id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
-
-$contaEdicao = null;
-
-if ($acao === 'editar' && $id > 0) {
-    $contaEdicao = $conta->getById($id);
-}
+$id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $postAcao = $_POST['acao'] ?? 'criar';
-
-    if ($postAcao === 'criar') {
-        $conta->create(
-            (int)$_POST['cliente_id'],
-            trim($_POST['nome'])
-        );
+    if (!Csrf::isValid()) {
+        http_response_code(403);
+        exit('Token CSRF inválido.');
     }
 
-    if ($postAcao === 'atualizar') {
-        $conta->update(
-            (int)$_POST['id'],
-            (int)$_POST['cliente_id'],
-            trim($_POST['nome'])
-        );
-    }
-
-    header('Location: contas.php');
-    exit;
-}
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $postAcao = $_POST['acao'] ?? '';
 
-    if ($postAcao === 'excluir') {
-        $ok = $conta->delete((int)($_POST['id'] ?? 0));
-        header('Location: contas.php?' . ($ok ? 'sucesso=excluido' : 'erro=excluir'));
-        exit;
+    try {
+        if ($postAcao === 'criar') {
+            Flash::success($contaWriteService->create($_POST));
+        } elseif ($postAcao === 'atualizar') {
+            Flash::success($contaWriteService->update($_POST));
+        } elseif ($postAcao === 'excluir') {
+            Flash::success($contaWriteService->delete($_POST));
+        }
+    } catch (Throwable $e) {
+        Flash::error($e->getMessage());
     }
+
+    header('Location: ' . routeUrl('contas'));
+    exit;
 }
-
-$lista = $conta->getAll();
-
-$totalContas = count($lista);
-$totalVinculadas = 0;
-$totalComMetaId = 0;
-$totalComStatus = 0;
-
-foreach ($lista as $item) {
-    if (!empty(trim($item['cliente_nome'] ?? ''))) {
-        $totalVinculadas++;
-    }
-
-    if (!empty(trim($item['meta_account_id'] ?? ''))) {
-        $totalComMetaId++;
-    }
-
-    if (!empty(trim($item['status'] ?? ''))) {
-        $totalComStatus++;
-    }
-}
+$pageData = $contaManagementService->getPageData($acao, $id);
+$clientes = $pageData['clientes'];
+$contaEdicao = $pageData['conta_edicao'];
+$lista = $pageData['lista'];
+$syncStatus = $pageData['sync_status'];
+$totalContas = (int) ($pageData['totais']['total_contas'] ?? 0);
+$totalVinculadas = (int) ($pageData['totais']['total_vinculadas'] ?? 0);
+$totalComMetaId = (int) ($pageData['totais']['total_com_meta_id'] ?? 0);
+$totalComStatus = (int) ($pageData['totais']['total_com_status'] ?? 0);
 
 ?>
 <!DOCTYPE html>
@@ -93,6 +64,13 @@ foreach ($lista as $item) {
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
     <link rel="stylesheet" href="../assets/css/global.css">
+    <link rel="stylesheet" href="../assets/css/toast.css">
+    <script>
+        (function () {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
 </head>
 
 <body class="page page-contas">
@@ -122,7 +100,7 @@ foreach ($lista as $item) {
                 </div>
 
                 <div class="page-hero-actions">
-                    <a href="contas.php" class="btn btn-secondary">Atualizar tela</a>
+                    <a href="<?= htmlspecialchars(routeUrl('contas')); ?>" class="btn btn-secondary">Atualizar tela</a>
                 </div>
             </section>
 
@@ -166,17 +144,16 @@ foreach ($lista as $item) {
                     </div>
 
                     <form method="POST" class="form-stack">
+                        <?= Csrf::field() ?>
                         <input type="hidden" name="acao" value="<?= $contaEdicao ? 'atualizar' : 'criar' ?>">
-                        <input type="hidden" name="id" value="<?= (int)($contaEdicao['id'] ?? 0) ?>">
+                        <input type="hidden" name="id" value="<?= (int) ($contaEdicao['id'] ?? 0) ?>">
 
                         <div class="field field-select">
                             <label for="cliente_id">Cliente</label>
                             <select id="cliente_id" name="cliente_id" required>
                                 <option value="">Selecione o cliente</option>
                                 <?php foreach ($clientes as $c): ?>
-                                    <option
-                                        value="<?= (int)$c['id'] ?>"
-                                        <?= (int)($contaEdicao['cliente_id'] ?? 0) === (int)$c['id'] ? 'selected' : '' ?>>
+                                    <option value="<?= (int) $c['id'] ?>" <?= (int) ($contaEdicao['cliente_id'] ?? 0) === (int) $c['id'] ? 'selected' : '' ?>>
                                         <?= htmlspecialchars($c['nome']) ?>
                                     </option>
                                 <?php endforeach; ?>
@@ -185,13 +162,8 @@ foreach ($lista as $item) {
 
                         <div class="field">
                             <label for="nome">Nome da conta</label>
-                            <input
-                                id="nome"
-                                type="text"
-                                name="nome"
-                                class="input"
-                                placeholder="Ex: Conta Principal Meta Cell"
-                                required
+                            <input id="nome" type="text" name="nome" class="input"
+                                placeholder="Ex: Conta Principal Meta Cell" required
                                 value="<?= htmlspecialchars($contaEdicao['nome'] ?? '') ?>">
                         </div>
 
@@ -201,7 +173,7 @@ foreach ($lista as $item) {
                             </button>
 
                             <?php if ($contaEdicao): ?>
-                                <a href="contas.php" class="btn btn-ghost">Cancelar</a>
+                                <a href="<?= htmlspecialchars(routeUrl('contas')); ?>" class="btn btn-ghost">Cancelar</a>
                             <?php endif; ?>
                         </div>
                     </form>
@@ -252,7 +224,7 @@ foreach ($lista as $item) {
 
                                             <span>
                                                 <strong>ID:</strong>
-                                                #<?= (int)$c['id'] ?>
+                                                #<?= (int) $c['id'] ?>
                                             </span>
                                         </div>
                                     </div>
@@ -270,15 +242,45 @@ foreach ($lista as $item) {
                                             <span class="badge badge-muted">Sem status</span>
                                         <?php endif; ?>
 
-                                        <a href="contas.php?acao=editar&id=<?= (int)$c['id'] ?>" class="btn btn-warning btn-sm">
+
+                                        <form method="POST" action="<?= htmlspecialchars(routeUrl('contas/sync_now')); ?>" style="display:inline;">
+                                            <?= Csrf::field() ?>
+                                            <input type="hidden" name="id" value="<?= (int) $c['id'] ?>">
+                                            <button type="submit" class="btn btn-sm btn-primary">
+                                                <i data-lucide="refresh-cw"></i>
+                                                <span>Sincronizar agora</span>
+                                            </button>
+                                        </form>
+
+                                        <form method="POST" action="<?= htmlspecialchars(routeUrl('contas/reprocessar_7_dias')); ?>" style="display:inline;">
+                                            <?= Csrf::field() ?>
+                                            <input type="hidden" name="id" value="<?= (int) $c['id'] ?>">
+                                            <button type="submit" class="btn btn-sm btn-outline">
+                                                <i data-lucide="history"></i>
+                                                <span>Reprocessar 7 dias</span>
+                                            </button>
+                                        </form>
+
+                                        <form method="POST" action="<?= htmlspecialchars(routeUrl('contas/full_sync')); ?>" style="display:inline;"
+                                            onsubmit="return confirm('Enfileirar Full Sync manual desta conta? Isso vai buscar toda a estrutura e os insights disponiveis da Meta para esta conta.')">
+                                            <?= Csrf::field() ?>
+                                            <input type="hidden" name="id" value="<?= (int) $c['id'] ?>">
+                                            <button type="submit" class="btn btn-sm btn-secondary">
+                                                <i data-lucide="database"></i>
+                                                <span>Full Sync</span>
+                                            </button>
+                                        </form>
+
+                                        <a href="<?= htmlspecialchars(routeUrl('contas') . '?acao=editar&id=' . (int) $c['id']); ?>" class="btn btn-warning btn-sm">
                                             Editar
                                         </a>
 
-                                        <form method="POST" style="display:inline;" onsubmit="return confirm('Tem certeza que deseja excluir esta conta?')">
-                                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+                                        <form method="POST" style="display:inline;"
+                                            onsubmit="return confirm('Tem certeza que deseja excluir esta conta? Todos os dados vinculados tambem serao removidos, incluindo campanhas, conjuntos, anuncios, insights e logs relacionados.')">
+                                            <?= Csrf::field() ?>
                                             <input type="hidden" name="acao" value="excluir">
-                                            <input type="hidden" name="id" value="<?= (int)$c['id'] ?>">
-                                            <button type="submit" class="btn btn-danger btn-sm">Excluir</button>
+                                            <input type="hidden" name="id" value="<?= (int) $c['id'] ?>">
+                                            <button type="submit" class="btn btn-danger btn-sm" title="Exclui a conta e todos os dados vinculados">Excluir conta e dados</button>
                                         </form>
                                     </div>
                                 </div>
@@ -290,12 +292,8 @@ foreach ($lista as $item) {
         </main>
     </div>
 
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <script>
-        lucide.createIcons();
-    </script>
-
-    <script src="../assets/js/nav-config.js"></script>
+    <?php Flash::renderScript(); ?>
+    <script src="../assets/js/bootstrap.js"></script>
 
 </body>
 

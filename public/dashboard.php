@@ -1,94 +1,74 @@
-<!-- dashboard -->
-
 <?php
 
 require_once __DIR__ . '/../app/config/bootstrap.php';
 
 Auth::requireLogin();
 
-$empresaId = Auth::getEmpresaId();
-$usuarioId = Auth::getUsuarioId();
-
 $db = new Database();
 $conn = $db->connect();
 
-$clienteModel = new Cliente($conn, $empresaId);
-$contaModel = new ContaAds($conn, $empresaId);
-$campanhaModel = new Campanha($conn, $empresaId);
-$metricsService = new MetricsService($conn);
+EmpresaAccessGuard::assertPodeOperar($conn);
 
-$contaId = isset($_GET['conta_id']) && $_GET['conta_id'] !== ''
-    ? (int) $_GET['conta_id']
-    : null;
+$empresaId = Auth::getEmpresaId();
+$usuarioId = Auth::getUsuarioId();
+$dashboardPageService = new DashboardPageService($conn, $empresaId);
+$pageData = $dashboardPageService->build($_GET);
 
-$campanhaId = isset($_GET['campanha_id']) && $_GET['campanha_id'] !== ''
-    ? (int) $_GET['campanha_id']
-    : null;
+$contaId = $pageData['contaId'];
+$campanhaId = $pageData['campanhaId'];
+$campanhaStatus = $pageData['campanhaStatus'];
+$periodo = $pageData['periodo'];
+$dataInicio = $pageData['dataInicio'];
+$dataFim = $pageData['dataFim'];
+$filters = $pageData['filters'];
+$filtrosComparacao = $pageData['filtrosComparacao'];
+$dashboard = $pageData['dashboard'];
+$resumo = $pageData['resumo'];
+$contexto = $pageData['contexto'];
+$periodoResolvido = $pageData['periodoResolvido'];
+$dataInicioAtual = $pageData['dataInicioAtual'];
+$dataFimAtual = $pageData['dataFimAtual'];
+$mercadoPhoneResumo = $pageData['mercadoPhoneResumo'];
+$mercadoPhoneResumoAnterior = $pageData['mercadoPhoneResumoAnterior'];
+$dashboardAnterior = $pageData['dashboardAnterior'];
+$resumoAnterior = $pageData['resumoAnterior'];
+$contas = $pageData['contas'];
+$campanhas = $pageData['campanhas'];
+$relatoriosUrl = $pageData['relatoriosUrl'];
+$dashboardMetaSummaryService = new DashboardMetaSummaryService($conn);
 
-$periodo = isset($_GET['periodo']) && $_GET['periodo'] !== ''
-    ? $_GET['periodo']
-    : '90';
+$resumoMetaAtual = $dashboardMetaSummaryService->loadMetaPeriodSummary(
+    $empresaId,
+    $contaId,
+    $campanhaId,
+    $dataInicioAtual,
+    $dataFimAtual,
+    $campanhaStatus ?: null
+);
+$dashboardMetaSummaryService->applyMetaSummary($resumo, $resumoMetaAtual);
 
-$dataInicio = isset($_GET['data_inicio']) ? trim($_GET['data_inicio']) : '';
-$dataFim = isset($_GET['data_fim']) ? trim($_GET['data_fim']) : '';
+$resumoMetaAnterior = $dashboardMetaSummaryService->loadMetaPeriodSummary(
+    $empresaId,
+    $contaId,
+    $campanhaId,
+    $filtrosComparacao['data_inicio'],
+    $filtrosComparacao['data_fim'],
+    $campanhaStatus ?: null
+);
+$dashboardMetaSummaryService->applyMetaSummary($resumoAnterior, $resumoMetaAnterior);
 
-$filters = [
-    'empresa_id'  => $empresaId,
-    'conta_id'    => $contaId,
-    'campanha_id' => $campanhaId,
-    'periodo'     => $periodo,
-    'data_inicio' => $dataInicio,
-    'data_fim'    => $dataFim,
-];
+$resumoMetricasAnterior = DashboardMetricsHelper::buildMetricsSummary($resumoAnterior);
 
-if (!empty($contaId) && !empty($campanhaId)) {
-    $campanhasDaConta = $campanhaModel->getByConta($contaId);
-    $campanhaValida = false;
-
-    foreach ($campanhasDaConta as $camp) {
-        if ((string)$camp['id'] === (string)$campanhaId) {
-            $campanhaValida = true;
-            break;
-        }
-    }
-
-    if (!$campanhaValida) {
-        $campanhaId = '';
-    }
-}
-
-$dashboard = $metricsService->getDashboardData($filters);
-$filtrosComparacao = $filters;
-
-$resumo = $dashboard['resumo'] ?? [];
-$contexto = $dashboard['contexto'] ?? [];
-$periodoResolvido = $dashboard['periodo'] ?? [
-    'data_inicio' => date('Y-m-d'),
-    'data_fim' => date('Y-m-d')
-];
-
-$dataInicioAtual = !empty($periodoResolvido['data_inicio']) ? $periodoResolvido['data_inicio'] : date('Y-m-d');
-$dataFimAtual = !empty($periodoResolvido['data_fim']) ? $periodoResolvido['data_fim'] : date('Y-m-d');
-
-$inicioTs = strtotime($dataInicioAtual);
-$fimTs = strtotime($dataFimAtual);
-
-$diasPeriodo = 1;
-if ($inicioTs && $fimTs && $fimTs >= $inicioTs) {
-    $diasPeriodo = (int) floor(($fimTs - $inicioTs) / 86400) + 1;
-}
-
-$filtrosComparacao['periodo'] = 'custom';
-$filtrosComparacao['data_fim'] = date('Y-m-d', strtotime($dataInicioAtual . ' -1 day'));
-$filtrosComparacao['data_inicio'] = date('Y-m-d', strtotime($filtrosComparacao['data_fim'] . ' -' . ($diasPeriodo - 1) . ' days'));
-
-$dashboardAnterior = $metricsService->getDashboardData($filtrosComparacao);
-$resumoAnterior = $dashboardAnterior['resumo'] ?? [];
-$resumoMetricasAnterior = obterResumoMetricasDashboard($resumoAnterior);
-
-$configMetricasJson = carregarConfigMetricasCliente($conn, $contaId);
+$configMetricasJson = $dashboardMetaSummaryService->loadMetricConfig($contaId);
 $configMetricas = $configMetricasJson['metricas'] ?? [];
-$resumoMetricas = obterResumoMetricasDashboard($resumo);
+$resumoMetricas = DashboardMetricsHelper::buildMetricsSummary($resumo);
+
+$statusEmpresa = EmpresaAccessGuard::check($conn);
+
+$mostrarAvisoTolerancia = !empty($statusEmpresa['em_tolerancia']);
+$mensagemTolerancia = $mostrarAvisoTolerancia
+    ? 'Sua empresa está em período de tolerância. Regularize a assinatura para evitar bloqueio.'
+    : null;
 
 /* fallback */
 if (empty($configMetricas)) {
@@ -109,24 +89,52 @@ if (empty($configMetricas)) {
 /* AQUI SIM entra o foreach */
 $metricasVisuais = [];
 
-$funilMetricas = montarFunilMetricasDashboard(
+$funilMetricas = DashboardMetricsHelper::buildFunnelMetrics(
     $configMetricas,
     $resumoMetricas,
-    $resumoMetricasAnterior
+    $resumoMetricasAnterior,
+    'obterLabelDashboard',
+    'formatarValorDashboard'
 );
+
+if (!empty($mercadoPhoneResumo) && (int) ($mercadoPhoneResumo['pedidos'] ?? 0) > 0) {
+    $pedidoAtual = (int) ($mercadoPhoneResumo['pedidos'] ?? 0);
+    $pedidoAnterior = (int) ($mercadoPhoneResumoAnterior['pedidos'] ?? 0);
+
+    $valorTopoFunil = !empty($funilMetricas)
+        ? DashboardMetricsHelper::normalizeNumber($funilMetricas[0]['valor'] ?? 0)
+        : $pedidoAtual;
+
+    $valorEtapaAnterior = !empty($funilMetricas)
+        ? DashboardMetricsHelper::normalizeNumber($funilMetricas[count($funilMetricas) - 1]['valor'] ?? 0)
+        : $pedidoAtual;
+
+    $funilMetricas[] = [
+        'chave' => 'mercado_phone_pedidos',
+        'label' => 'Pedidos',
+        'valor' => $pedidoAtual,
+        'valor_formatado' => formatInt($pedidoAtual),
+        'estado' => 'neutral',
+        'cor' => '#3b82f6',
+        'cor_fundo' => 'rgba(59, 130, 246, 0.14)',
+        'percentual_etapa' => empty($funilMetricas) ? 100 : DashboardMetricsHelper::calculateSafePercent($pedidoAtual, $valorEtapaAnterior),
+        'percentual_topo' => empty($funilMetricas) ? 100 : DashboardMetricsHelper::calculateSafePercent($pedidoAtual, $valorTopoFunil),
+        'variacao_percentual' => DashboardMetricsHelper::calculateVariationPercent($pedidoAtual, $pedidoAnterior),
+    ];
+}
 
 foreach ($configMetricas as $chave => $config) {
     $valorAtual = $resumoMetricas[$chave] ?? 0;
     $valorAnterior = $resumoMetricasAnterior[$chave] ?? 0;
 
-    $estado = getEstadoMetrica($config, $valorAtual);
-    $cores = obterCoresPorEstado($estado);
+    $estado = DashboardMetricsHelper::getMetricState($config, $valorAtual);
+    $cores = DashboardMetricsHelper::getColorsByState($estado);
 
     $metricasVisuais[$chave] = [
         'estado' => $estado,
         'cor' => $cores['solid'],
         'cor_fundo' => $cores['soft'],
-        'variacao_percentual' => calcularVariacaoPercentualDashboard($valorAtual, $valorAnterior)
+        'variacao_percentual' => DashboardMetricsHelper::calculateVariationPercent($valorAtual, $valorAnterior)
     ];
 }
 
@@ -136,11 +144,9 @@ uasort($configMetricas, function ($a, $b) {
     return $pesoB <=> $pesoA;
 });
 
-$contas = $contaModel->getAll();
-$campanhas = $campanhaModel->getByConta($contaId);
-
 $mostrarFiltrosSidebar = true;
 $campanha_id = $campanhaId ?? '';
+$campanhaStatus = $campanhaStatus ?? '';
 $data_inicio = $dataInicio ?? '';
 $data_fim = $dataFim ?? '';
 
@@ -164,38 +170,47 @@ function formatPercent($value, $casas = 2)
     return number_format((float)$value, $casas, ',', '.') . '%';
 }
 
-function carregarConfigMetricasCliente(PDO $conn, $contaId): array
+function formatarValorMercadoPhoneDashboard(string $chave, $valor): string
 {
-    if (empty($contaId)) {
-        return [];
+    if ($chave === 'faturamento' || $chave === 'ticket_medio') {
+        return 'R$ ' . number_format((float) $valor, 2, ',', '.');
     }
 
-    $sql = "
-        SELECT mc.config_json
-        FROM metricas_config mc
-        INNER JOIN contas_ads ca ON ca.cliente_id = mc.cliente_id
-        WHERE ca.id = :conta_id
-        LIMIT 1
-    ";
+    return number_format((float) $valor, 0, ',', '.');
+}
 
-    $stmt = $conn->prepare($sql);
-    $stmt->execute([
-        ':conta_id' => $contaId
-    ]);
+function obterEstadoMercadoPhoneDashboard($valorAtual, $valorAnterior): string
+{
+    $valorAtual = DashboardMetricsHelper::normalizeNumber($valorAtual);
+    $valorAnterior = DashboardMetricsHelper::normalizeNumber($valorAnterior);
 
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if (!$row || empty($row['config_json'])) {
-        return [];
+    if ($valorAnterior == 0.0) {
+        return 'neutral';
     }
 
-    $json = json_decode($row['config_json'], true);
-
-    if (!is_array($json)) {
-        return [];
+    if ($valorAtual > $valorAnterior) {
+        return 'good';
     }
 
-    return $json;
+    if ($valorAtual < $valorAnterior) {
+        return 'bad';
+    }
+
+    return 'neutral';
+}
+
+function obterClasseTrendMercadoPhoneDashboard($valorAtual, $valorAnterior): string
+{
+    $valorAtual = DashboardMetricsHelper::normalizeNumber($valorAtual);
+    $valorAnterior = DashboardMetricsHelper::normalizeNumber($valorAnterior);
+
+    if ($valorAnterior == 0.0 || $valorAtual == $valorAnterior) {
+        return 'metric-trend-neutral';
+    }
+
+    return $valorAtual > $valorAnterior
+        ? 'metric-trend-up-good'
+        : 'metric-trend-down-bad';
 }
 
 function metricaAtiva(array $configMetricas, string $chave): bool
@@ -210,6 +225,7 @@ function formatarValorDashboard(string $chave, $valor, array $config = []): stri
     $moneyKeys = [
         'gasto',
         'gasto_total',
+        'valor_gasto',
         'cpc',
         'cpm',
         'cpl',
@@ -263,6 +279,7 @@ function obterLabelDashboard(string $chave, array $config = []): string
     $labels = [
         'gasto' => 'Gasto Total',
         'gasto_total' => 'Gasto Total',
+        'valor_gasto' => 'Valor Gasto',
         'impressoes' => 'Impressões',
         'alcance' => 'Alcance',
         'frequencia' => 'Frequência',
@@ -290,254 +307,6 @@ function obterLabelDashboard(string $chave, array $config = []): string
     return $labels[$chave] ?? ucfirst(str_replace('_', ' ', $chave));
 }
 
-function obterResumoMetricasDashboard(array $resumo): array
-{
-    return [
-        'gasto' => $resumo['gasto_total'] ?? 0,
-        'impressoes' => $resumo['impressoes'] ?? 0,
-        'alcance' => $resumo['alcance'] ?? 0,
-        'frequencia' => $resumo['frequencia'] ?? 0,
-        'cliques' => (int) $resumo['cliques_link'],
-        'cliques_link' => $resumo['cliques_link'] ?? 0,
-        'ctr' => $resumo['ctr'] ?? 0,
-        'cpc' => $resumo['cpc'] ?? 0,
-        'cpl' => $resumo['cpl'] ?? 0,
-        'cpa' => $resumo['cpa'] ?? 0,
-        'cpm' => $resumo['cpm'] ?? 0,
-        'resultados' => $resumo['resultados'] ?? 0,
-        'custo_resultado' => $resumo['custo_resultado'] ?? 0,
-        'leads' => $resumo['leads'] ?? 0,
-        'conversas_whatsapp' => $resumo['conversas_whatsapp'] ?? 0,
-        'custo_por_conversa' => $resumo['custo_por_conversa'] ?? 0,
-        'conversoes' => $resumo['conversoes'] ?? 0,
-        'compras' => $resumo['compras'] ?? 0,
-        'custo_por_compra' => $resumo['custo_por_compra'] ?? 0,
-        'taxa_conversao' => $resumo['taxa_conversao'] ?? 0,
-        'receita' => $resumo['receita'] ?? 0,
-        'roas' => $resumo['roas'] ?? 0,
-    ];
-}
-
-function normalizarNumeroDashboard($valor): float
-{
-    if ($valor === null || $valor === '') {
-        return 0.0;
-    }
-
-    return (float) str_replace(',', '.', (string) $valor);
-}
-
-function classificarValorMetricaDashboard(array $config, $valor): string
-{
-    $valor = normalizarNumeroDashboard($valor);
-
-    $tipo = trim((string)($config['tipo_leitura'] ?? ''));
-
-    $criticoMin = normalizarNumeroDashboard($config['critico_min'] ?? null);
-    $alertaMin  = normalizarNumeroDashboard($config['alerta_min'] ?? null);
-    $idealMin   = normalizarNumeroDashboard($config['ideal_min'] ?? null);
-    $idealMax   = normalizarNumeroDashboard($config['ideal_max'] ?? null);
-    $alertaMax  = normalizarNumeroDashboard($config['alerta_max'] ?? null);
-    $criticoMax = normalizarNumeroDashboard($config['critico_max'] ?? null);
-
-    $temFaixaMin = ($criticoMin > 0 || $alertaMin > 0 || $idealMin > 0);
-    $temFaixaMax = ($idealMax > 0 || $alertaMax > 0 || $criticoMax > 0);
-    $temAlgumaFaixa = $temFaixaMin || $temFaixaMax;
-
-    if ($tipo === '' || !$temAlgumaFaixa) {
-        return 'metric-value-neutral';
-    }
-
-    if ($tipo === 'menor_melhor') {
-        if ($idealMax > 0 && $valor <= $idealMax) {
-            return 'metric-value-good';
-        }
-
-        if ($alertaMax > 0 && $valor <= $alertaMax) {
-            return 'metric-value-warning';
-        }
-
-        if ($criticoMax > 0 && $valor >= $criticoMax) {
-            return 'metric-value-bad';
-        }
-
-        return 'metric-value-neutral';
-    }
-
-    if ($tipo === 'maior_melhor') {
-        if ($idealMin > 0 && $valor >= $idealMin) {
-            return 'metric-value-good';
-        }
-
-        if ($alertaMin > 0 && $valor >= $alertaMin) {
-            return 'metric-value-warning';
-        }
-
-        if ($criticoMin > 0 && $valor <= $criticoMin) {
-            return 'metric-value-bad';
-        }
-
-        return 'metric-value-neutral';
-    }
-
-    if ($tipo === 'faixa_ideal') {
-        if ($idealMin > 0 && $idealMax > 0 && $valor >= $idealMin && $valor <= $idealMax) {
-            return 'metric-value-good';
-        }
-
-        $warningInferior = ($alertaMin > 0 && $idealMin > 0 && $valor >= $alertaMin && $valor < $idealMin);
-        $warningSuperior = ($idealMax > 0 && $alertaMax > 0 && $valor > $idealMax && $valor <= $alertaMax);
-
-        if ($warningInferior || $warningSuperior) {
-            return 'metric-value-warning';
-        }
-
-        $badInferior = ($criticoMin > 0 && $valor <= $criticoMin);
-        $badSuperior = ($criticoMax > 0 && $valor >= $criticoMax);
-
-        if ($badInferior || $badSuperior) {
-            return 'metric-value-bad';
-        }
-
-        return 'metric-value-neutral';
-    }
-
-    return 'metric-value-neutral';
-}
-
-function getEstadoMetrica(array $config, $valor): string
-{
-    $classe = classificarValorMetricaDashboard($config, $valor);
-
-    if ($classe === 'metric-value-good') return 'good';
-    if ($classe === 'metric-value-warning') return 'warning';
-    if ($classe === 'metric-value-bad') return 'bad';
-
-    return 'neutral';
-}
-
-function obterCoresPorEstado(string $estado): array
-{
-    switch ($estado) {
-        case 'good':
-            return [
-                'solid' => '#22c55e',
-                'soft' => 'rgba(34, 197, 94, 0.18)'
-            ];
-
-        case 'warning':
-            return [
-                'solid' => '#f59e0b',
-                'soft' => 'rgba(245, 158, 11, 0.18)'
-            ];
-
-        case 'bad':
-            return [
-                'solid' => '#ef4444',
-                'soft' => 'rgba(239, 68, 68, 0.18)'
-            ];
-
-        default:
-            return [
-                'solid' => '#60a5fa',
-                'soft' => 'rgba(96, 165, 250, 0.18)'
-            ];
-    }
-}
-
-function calcularPercentualSeguroDashboard($atual, $base): float
-{
-    $atual = normalizarNumeroDashboard($atual);
-    $base = normalizarNumeroDashboard($base);
-
-    if ($base <= 0) {
-        return 0;
-    }
-
-    return ($atual / $base) * 100;
-}
-
-function obterChaveFunilDashboard(array $configMetricas, array $candidatas, string $fallback): string
-{
-    foreach ($candidatas as $chave) {
-        if (isset($configMetricas[$chave])) {
-            return $chave;
-        }
-    }
-
-    return $fallback;
-}
-
-function montarFunilMetricasDashboard(array $configMetricas, array $resumoMetricas, array $resumoMetricasAnterior = []): array
-{
-    $chaveCliques = obterChaveFunilDashboard(
-        $configMetricas,
-        ['cliques_link', 'cliques'],
-        'cliques'
-    );
-
-    $chaveResultados = obterChaveFunilDashboard(
-        $configMetricas,
-        ['resultados', 'leads', 'conversoes', 'compras', 'conversas_whatsapp'],
-        'resultados'
-    );
-
-    $estrutura = [
-        [
-            'chave' => 'impressoes',
-            'label' => obterLabelDashboard('impressoes', $configMetricas['impressoes'] ?? [])
-        ],
-        [
-            'chave' => 'alcance',
-            'label' => obterLabelDashboard('alcance', $configMetricas['alcance'] ?? [])
-        ],
-        [
-            'chave' => $chaveCliques,
-            'label' => obterLabelDashboard($chaveCliques, $configMetricas[$chaveCliques] ?? [])
-        ],
-        [
-            'chave' => $chaveResultados,
-            'label' => obterLabelDashboard($chaveResultados, $configMetricas[$chaveResultados] ?? [])
-        ],
-    ];
-
-    $itens = [];
-    $valorTopo = 0.0;
-
-    foreach ($estrutura as $index => $item) {
-        $chave = $item['chave'];
-        $config = $configMetricas[$chave] ?? [];
-        $valorAtual = $resumoMetricas[$chave] ?? 0;
-        $valorAnterior = $resumoMetricasAnterior[$chave] ?? 0;
-
-        if ($index === 0) {
-            $valorTopo = normalizarNumeroDashboard($valorAtual);
-        }
-
-        $estado = getEstadoMetrica($config, $valorAtual);
-        $cores = obterCoresPorEstado($estado);
-
-        $valorEtapaAnterior = $index > 0
-            ? normalizarNumeroDashboard($itens[$index - 1]['valor'])
-            : normalizarNumeroDashboard($valorAtual);
-
-        $itens[] = [
-            'chave' => $chave,
-            'label' => $item['label'],
-            'valor' => $valorAtual,
-            'valor_formatado' => formatarValorDashboard($chave, $valorAtual, $config),
-            'estado' => $estado,
-            'cor' => $cores['solid'],
-            'cor_fundo' => $cores['soft'],
-            'percentual_etapa' => $index === 0 ? 100 : calcularPercentualSeguroDashboard($valorAtual, $valorEtapaAnterior),
-            'percentual_topo' => $index === 0 ? 100 : calcularPercentualSeguroDashboard($valorAtual, $valorTopo),
-            'variacao_percentual' => calcularVariacaoPercentualDashboard($valorAtual, $valorAnterior),
-        ];
-    }
-
-    return $itens;
-}
-
 function obterEstadoCardDashboard(string $classeValor): string
 {
     if ($classeValor === 'metric-value-good') {
@@ -553,62 +322,6 @@ function obterEstadoCardDashboard(string $classeValor): string
     }
 
     return 'metric-state-neutral';
-}
-
-function classificarTrendDashboard(array $config, $valorAtual, $valorAnterior): string
-{
-    $valorAtual = normalizarNumeroDashboard($valorAtual);
-    $valorAnterior = normalizarNumeroDashboard($valorAnterior);
-
-    if ($valorAnterior == 0.0 || $valorAtual == $valorAnterior) {
-        return 'metric-trend-neutral';
-    }
-
-    $tipo = $config['tipo_leitura'] ?? 'faixa_ideal';
-
-    if ($tipo === 'menor_melhor') {
-        return $valorAtual < $valorAnterior
-            ? 'metric-trend-down-good'
-            : 'metric-trend-up-bad';
-    }
-
-    if ($tipo === 'maior_melhor') {
-        return $valorAtual > $valorAnterior
-            ? 'metric-trend-up-good'
-            : 'metric-trend-down-bad';
-    }
-
-    $classeAtual = classificarValorMetricaDashboard($config, $valorAtual);
-    $classeAnterior = classificarValorMetricaDashboard($config, $valorAnterior);
-
-    if ($classeAtual === $classeAnterior) {
-        return 'metric-trend-neutral';
-    }
-
-    if (
-        $classeAtual === 'metric-value-good' ||
-        ($classeAtual === 'metric-value-warning' && $classeAnterior === 'metric-value-bad')
-    ) {
-        return $valorAtual >= $valorAnterior
-            ? 'metric-trend-up-good'
-            : 'metric-trend-down-good';
-    }
-
-    return $valorAtual >= $valorAnterior
-        ? 'metric-trend-up-bad'
-        : 'metric-trend-down-bad';
-}
-
-function calcularVariacaoPercentualDashboard($valorAtual, $valorAnterior): ?float
-{
-    $valorAtual = normalizarNumeroDashboard($valorAtual);
-    $valorAnterior = normalizarNumeroDashboard($valorAnterior);
-
-    if ($valorAnterior == 0.0) {
-        return null;
-    }
-
-    return (($valorAtual - $valorAnterior) / $valorAnterior) * 100;
 }
 
 $dashboardJson = json_encode([
@@ -637,6 +350,12 @@ $dashboardJson = json_encode([
 
     <link rel="stylesheet" href="../assets/css/dashboard.css">
     <link rel="stylesheet" href="../assets/css/dashboard-metrics.css">
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem("theme") || "dark";
+            document.documentElement.setAttribute("data-theme", savedTheme);
+        })();
+    </script>
 </head>
 
 <body class="page page-dashboard">
@@ -644,6 +363,12 @@ $dashboardJson = json_encode([
     <div class="app">
         <?php require_once __DIR__ . '/partials/menu_lateral.php'; ?>
 
+        <?php if (!empty($mostrarAvisoTolerancia)): ?>
+            <div class="alert alert-warning">
+                <?= htmlspecialchars($mensagemTolerancia); ?>
+            </div>
+        <?php endif; ?>
+        
         <main class="main">
             <header class="topbar">
                 <div>
@@ -660,10 +385,10 @@ $dashboardJson = json_encode([
                 </div>
 
                 <div class="topbar-right">
-                    <button class="btn btn-top">
+                    <a href="<?= htmlspecialchars($relatoriosUrl); ?>" class="btn btn-top">
                         <i data-lucide="file-text"></i>
                         <span>Gerar Relatório</span>
-                    </button>
+                    </a>
                     <small>Dados do banco · <?= date('d/m/Y H:i'); ?></small>
                 </div>
             </header>
@@ -685,13 +410,13 @@ $dashboardJson = json_encode([
                     $label = obterLabelDashboard($chave, $config);
                     $valorFormatado = formatarValorDashboard($chave, $valorAtual, $config);
 
-                    $classeValor = classificarValorMetricaDashboard($config, $valorAtual);
-                    $estado = getEstadoMetrica($config, $valorAtual);
-                    $classeTrend = classificarTrendDashboard($config, $valorAtual, $valorAnterior);
+                    $classeValor = DashboardMetricsHelper::classifyMetricValue($config, $valorAtual);
+                    $estado = DashboardMetricsHelper::getMetricState($config, $valorAtual);
+                    $classeTrend = DashboardMetricsHelper::classifyTrend($config, $valorAtual, $valorAnterior);
 
 
-                    $variacao = calcularVariacaoPercentualDashboard($valorAtual, $valorAnterior);
-                    $trendUp = normalizarNumeroDashboard($valorAtual) >= normalizarNumeroDashboard($valorAnterior);
+                    $variacao = DashboardMetricsHelper::calculateVariationPercent($valorAtual, $valorAnterior);
+                    $trendUp = DashboardMetricsHelper::normalizeNumber($valorAtual) >= DashboardMetricsHelper::normalizeNumber($valorAnterior);
 
                     $small = '';
                     if ($chave === 'alcance') {
@@ -741,6 +466,70 @@ $dashboardJson = json_encode([
                     </div>
                 <?php endforeach; ?>
             </section>
+
+            <?php if (!empty($mercadoPhoneResumo)): ?>
+                <?php
+                $mercadoPhoneCards = [
+                    ['key' => 'pedidos', 'label' => 'Pedidos'],
+                    ['key' => 'faturamento', 'label' => 'Faturamento'],
+                    ['key' => 'itens_vendidos', 'label' => 'Itens Vendidos'],
+                    ['key' => 'ticket_medio', 'label' => 'Ticket Médio'],
+                ];
+                ?>
+                <section class="panel" style="margin-top: 24px; margin-bottom: 28px;">
+                    <div class="panel-header">
+                        <div>
+                            <h3>Mercado Phone</h3>
+                            <p class="panel-subtitle">
+                                Métricas comerciais exibidas apenas para clientes com integração ativa e token configurado.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="cards-grid" style="margin-top: 10px;">
+                        <?php foreach ($mercadoPhoneCards as $mpCard): ?>
+                            <?php
+                            $chave = $mpCard['key'];
+                            $valorAtual = $mercadoPhoneResumo[$chave] ?? 0;
+                            $valorAnterior = $mercadoPhoneResumoAnterior[$chave] ?? 0;
+                            $variacao = DashboardMetricsHelper::calculateVariationPercent($valorAtual, $valorAnterior);
+                            $trendUp = DashboardMetricsHelper::normalizeNumber($valorAtual) >= DashboardMetricsHelper::normalizeNumber($valorAnterior);
+                            $estadoMp = obterEstadoMercadoPhoneDashboard($valorAtual, $valorAnterior);
+                            $classeTrendMp = obterClasseTrendMercadoPhoneDashboard($valorAtual, $valorAnterior);
+                            ?>
+                            <div class="metric-card metric-dynamic metric-state-<?= htmlspecialchars($estadoMp) ?>">
+                                <div class="metric-head">
+                                    <span class="metric-label"><?= htmlspecialchars($mpCard['label']) ?></span>
+                                    <span class="metric-trend <?= htmlspecialchars($classeTrendMp) ?>">
+                                        <?php if ($variacao !== null): ?>
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                                <?php if ($trendUp): ?>
+                                                    <path d="M7 17L17 7"></path>
+                                                    <path d="M8 7h9v9"></path>
+                                                <?php else: ?>
+                                                    <path d="M7 7l10 10"></path>
+                                                    <path d="M8 17h9V8"></path>
+                                                <?php endif; ?>
+                                            </svg>
+                                            <?= htmlspecialchars(number_format(abs($variacao), 1, ',', '.')) ?>%
+                                        <?php else: ?>
+                                            -
+                                        <?php endif; ?>
+                                    </span>
+                                </div>
+
+                                <div class="metric-value metric-value-neutral">
+                                    <?= htmlspecialchars(formatarValorMercadoPhoneDashboard($chave, $valorAtual)) ?>
+                                </div>
+
+                                <span class="metric-extra">
+                                    <?= !empty($mercadoPhoneResumo['has_data']) ? 'Comparado ao periodo anterior' : 'Integracao ativa aguardando dados sincronizados' ?>
+                                </span>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </section>
+            <?php endif; ?>
 
             <section class="charts-row">
                 <div class="panel panel-lg">
@@ -813,9 +602,28 @@ $dashboardJson = json_encode([
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="../assets/js/dashboard.js"></script>
+    <script src="../assets/js/dashboard.js?v=<?= time(); ?>"></script>
 
-    <script src="../assets/js/nav-config.js"></script>
+
+    <script>
+        const themeSelect = document.getElementById("theme-select");
+
+        if (themeSelect) {
+            const currentTheme = localStorage.getItem("theme") || "dark";
+            themeSelect.value = currentTheme;
+
+            themeSelect.addEventListener("change", function() {
+                const selectedTheme = this.value;
+
+                document.documentElement.setAttribute("data-theme", selectedTheme);
+                localStorage.setItem("theme", selectedTheme);
+
+                window.dispatchEvent(new Event("themechange"));
+            });
+        }
+    </script>
+
+    <script src="../assets/js/bootstrap.js"></script>
 
 </body>
 

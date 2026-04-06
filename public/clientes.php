@@ -4,68 +4,50 @@ require_once __DIR__ . '/../app/config/bootstrap.php';
 
 Auth::requireLogin();
 
-$empresaId = Auth::getEmpresaId();
-$usuarioId = Auth::getUsuarioId();
-
 $db = new Database();
 $conn = $db->connect();
 
-$cliente = new Cliente($conn, $empresaId);
+EmpresaAccessGuard::assertPodeOperar($conn);
+
+$empresaId = Auth::getEmpresaId();
+$usuarioId = Auth::getUsuarioId();
+
+$managementService = new ClienteManagementService($conn, $empresaId);
+$writeService = new ClienteWriteService($conn, $empresaId);
 
 $acao = $_GET['acao'] ?? '';
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
-$clienteEdicao = null;
-
-if ($acao === 'editar' && $id > 0) {
-    $clienteEdicao = $cliente->getById($id);
-}
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!Csrf::isValid()) {
+        http_response_code(403);
+        exit('Token CSRF inválido.');
+    }
+
     $postAcao = $_POST['acao'] ?? 'criar';
 
-    if ($postAcao === 'criar') {
-        $cliente->create(
-            trim($_POST['nome']),
-            trim($_POST['email'] ?? ''),
-            trim($_POST['whatsapp'] ?? '')
-        );
+    try {
+        if ($postAcao === 'criar') {
+            Flash::success($writeService->create($_POST));
+        } elseif ($postAcao === 'atualizar') {
+            Flash::success($writeService->update($_POST));
+        } elseif ($postAcao === 'excluir') {
+            Flash::success($writeService->delete($_POST));
+        }
+    } catch (Throwable $e) {
+        Flash::error($e->getMessage());
     }
 
-    if ($postAcao === 'atualizar') {
-        $cliente->update(
-            (int)$_POST['id'],
-            trim($_POST['nome']),
-            trim($_POST['email'] ?? ''),
-            trim($_POST['whatsapp'] ?? '')
-        );
-    }
-
-    header('Location: clientes.php');
+    header('Location: ' . routeUrl('clientes'));
     exit;
 }
 
-if ($acao === 'excluir' && $id > 0) {
-    $cliente->delete($id);
-    header('Location: clientes.php');
-    exit;
-}
-
-$lista = $cliente->getAll();
-
-$totalClientes = count($lista);
-$totalComEmail = 0;
-$totalComWhatsapp = 0;
-
-foreach ($lista as $item) {
-    if (!empty(trim($item['email'] ?? ''))) {
-        $totalComEmail++;
-    }
-
-    if (!empty(trim($item['whatsapp'] ?? ''))) {
-        $totalComWhatsapp++;
-    }
-}
+$pageData = $managementService->getPageData($acao, $id);
+$clienteEdicao = $pageData['cliente_edicao'];
+$lista = $pageData['lista'];
+$totalClientes = $pageData['totais']['total_clientes'];
+$totalComEmail = $pageData['totais']['total_com_email'];
+$totalComWhatsapp = $pageData['totais']['total_com_whatsapp'];
 
 ?>
 <!DOCTYPE html>
@@ -81,6 +63,13 @@ foreach ($lista as $item) {
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
     <link rel="stylesheet" href="../assets/css/global.css">
+    <link rel="stylesheet" href="../assets/css/toast.css">
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
 </head>
 
 <body class="page page-clientes">
@@ -112,7 +101,7 @@ foreach ($lista as $item) {
                 </div>
 
                 <div class="page-hero-actions">
-                    <a href="clientes.php" class="btn btn-secondary">Atualizar tela</a>
+                    <a href="<?= htmlspecialchars(routeUrl('clientes')); ?>" class="btn btn-secondary">Atualizar tela</a>
                 </div>
             </section>
 
@@ -156,6 +145,7 @@ foreach ($lista as $item) {
                     </div>
 
                     <form method="POST" class="form-stack">
+                        <?= Csrf::field() ?>
                         <input type="hidden" name="acao" value="<?= $clienteEdicao ? 'atualizar' : 'criar' ?>">
                         <input type="hidden" name="id" value="<?= (int)($clienteEdicao['id'] ?? 0) ?>">
 
@@ -199,7 +189,7 @@ foreach ($lista as $item) {
                             </button>
 
                             <?php if ($clienteEdicao): ?>
-                                <a href="clientes.php" class="btn btn-ghost">Cancelar</a>
+                                <a href="<?= htmlspecialchars(routeUrl('clientes')); ?>" class="btn btn-ghost">Cancelar</a>
                             <?php endif; ?>
                         </div>
                     </form>
@@ -263,16 +253,17 @@ foreach ($lista as $item) {
                                             <span class="badge badge-yellow">Sem WhatsApp</span>
                                         <?php endif; ?>
 
-                                        <a href="clientes.php?acao=editar&id=<?= (int)$c['id'] ?>" class="btn btn-warning btn-sm">
+                                        <a href="<?= htmlspecialchars(routeUrl('clientes') . '?acao=editar&id=' . (int) $c['id']); ?>" class="btn btn-warning btn-sm">
                                             Editar
                                         </a>
 
-                                        <a
-                                            href="clientes.php?acao=excluir&id=<?= (int)$c['id'] ?>"
-                                            class="btn btn-danger btn-sm"
-                                            onclick="return confirm('Tem certeza que deseja excluir este cliente?')">
-                                            Excluir
-                                        </a>
+                                        <form method="POST" style="display:inline;"
+                                            onsubmit="return confirm('Tem certeza que deseja excluir este cliente? Todos os dados vinculados tambem serao removidos, incluindo contas, sincronizacoes, logs e dados do Mercado Phone.')">
+                                            <?= Csrf::field() ?>
+                                            <input type="hidden" name="acao" value="excluir">
+                                            <input type="hidden" name="id" value="<?= (int) $c['id'] ?>">
+                                            <button type="submit" class="btn btn-danger btn-sm" title="Exclui o cliente e todos os dados vinculados">Excluir cliente e dados</button>
+                                        </form>
                                     </div>
                                 </div>
                             <?php endforeach; ?>
@@ -283,13 +274,8 @@ foreach ($lista as $item) {
         </main>
     </div>
 
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <script>
-        lucide.createIcons();
-    </script>
-
-
-    <script src="../assets/js/nav-config.js"></script>
+    <?php Flash::renderScript(); ?>
+    <script src="../assets/js/bootstrap.js"></script>
 </body>
 
 </html>
